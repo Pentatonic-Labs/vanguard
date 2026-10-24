@@ -1,0 +1,152 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pentatonic.com/vanguard/schemas/finding.schema.json",
+  "title": "Vanguard Finding",
+  "description": "A proven security finding from the Vanguard red-team harness. A finding is a vulnerability backed by a machine-checkable proof of exploitability, never an unproven claim.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "id",
+    "run_id",
+    "source",
+    "target",
+    "vuln",
+    "proof",
+    "impact"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "description": "Version of this finding schema.",
+      "examples": ["1.0"]
+    },
+    "id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Stable unique identifier for this finding."
+    },
+    "run_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Identifier of the red-team run that produced this finding."
+    },
+    "source": {
+      "type": "string",
+      "description": "Producer of the finding, e.g. redteam-agent.",
+      "examples": ["redteam-agent"]
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "ref"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["web-service", "container", "code", "infra", "saas-config"],
+          "description": "The category of thing the finding is about."
+        },
+        "ref": {
+          "type": "string",
+          "description": "Reference to the target: a purl, CPE, URL, or path."
+        },
+        "asset_id": {
+          "type": "string",
+          "description": "Identifier of the inventory asset that owns this target."
+        }
+      }
+    },
+    "vuln": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cwe", "summary", "severity", "reachability"],
+      "properties": {
+        "cwe": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "pattern": "^CWE-[0-9]+$"
+          },
+          "description": "Common Weakness Enumeration identifiers."
+        },
+        "summary": {
+          "type": "string",
+          "description": "One-line description of the vulnerability."
+        },
+        "severity": {
+          "type": "string",
+          "enum": ["critical", "high", "medium", "low", "info"],
+          "description": "Severity of the vulnerability."
+        },
+        "cvss": {
+          "type": "string",
+          "description": "CVSS v3.1 vector string or base score."
+        },
+        "reachability": {
+          "type": "string",
+          "enum": ["confirmed", "potential", "not-reachable", "unknown"],
+          "description": "Whether the vulnerable code path is actually reachable in the target."
+        }
+      }
+    },
+    "proof": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repro", "machine_checkable"],
+      "description": "The proof that the finding is real. This is where the proof gate is enforced.",
+      "properties": {
+        "repro": {
+          "type": "string",
+          "description": "A single command or script that reproduces the flaw."
+        },
+        "artifact": {
+          "type": "string",
+          "description": "SHA-256 digest of the proof-of-concept artifact."
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Supporting evidence: log lines, HTTP responses, etc."
+        },
+        "machine_checkable": {
+          "const": true,
+          "description": "MUST be true. A report whose proof cannot be checked by machine is a lead, not a finding."
+        }
+      }
+    },
+    "impact": {
+      "type": "string",
+      "description": "Business or technical impact of the vulnerability."
+    },
+    "fix": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Proposed remediation.",
+      "properties": {
+        "suggestion": {
+          "type": "string",
+          "description": "Human-readable remediation suggestion."
+        },
+        "patch_ref": {
+          "type": "string",
+          "description": "Reference to the patch (commit or pull request)."
+        },
+        "test_ref": {
+          "type": "string",
+          "description": "Reference to the regression test that demonstrates the flaw."
+        }
+      }
+    },
+    "references": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "format": "uri"
+      },
+      "description": "External references, e.g. CVE or advisory URLs."
+    }
+  }
+}
