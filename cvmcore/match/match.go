@@ -32,6 +32,9 @@ func Match(vulns []cvmcore.Vuln, pkgs []inventory.Package) []cvmcore.Match {
 					}
 				}
 			}
+			if !matched {
+				matched = pkgMatchesCPE(p, v.CPEs)
+			}
 			if matched {
 				seen[p.Purl] = true
 				m.Packages = append(m.Packages, p.Purl)
@@ -154,4 +157,87 @@ func compareNumeric(a, b string) int {
 		return 1
 	}
 	return strings.Compare(a, b)
+}
+
+// cpe is a parsed CPE 2.3 URI's matching-relevant components.
+type cpe struct {
+	vendor  string
+	product string
+	version string
+}
+
+// parseCPE parses a CPE 2.3 formatted string
+// (cpe:2.3:part:vendor:product:version:update:edition:language:sw_edition:target_sw:target_hw:other)
+// into its vendor, product, and version. It does not decode backslash escapes
+// and is a heuristic first cut, not a full CPE implementation.
+func parseCPE(s string) (cpe, bool) {
+	parts := strings.Split(s, ":")
+	if len(parts) < 6 || parts[0] != "cpe" || parts[1] != "2.3" {
+		return cpe{}, false
+	}
+	return cpe{vendor: parts[3], product: parts[4], version: parts[5]}, true
+}
+
+// pkgMatchesCPE reports whether pkg matches any of the given CPE 2.3 strings.
+// CPE-to-package matching is inherently fuzzy: CPE vendor/product names do not
+// map 1:1 onto package names. This is a heuristic first cut — case-insensitive
+// name (exact or substring) plus a lenient version comparison.
+func pkgMatchesCPE(pkg inventory.Package, cpes []string) bool {
+	for _, s := range cpes {
+		c, ok := parseCPE(s)
+		if ok && cpeMatches(pkg, c) {
+			return true
+		}
+	}
+	return false
+}
+
+// cpeMatches reports whether pkg falls under the given parsed CPE. The name
+// must match the CPE vendor or product (case-insensitive exact or substring);
+// the version must then satisfy the CPE version constraint.
+func cpeMatches(pkg inventory.Package, c cpe) bool {
+	name := strings.ToLower(pkg.Name)
+	if !cpeNameMatches(name, strings.ToLower(c.vendor)) && !cpeNameMatches(name, strings.ToLower(c.product)) {
+		return false
+	}
+	return cpeVersionMatches(pkg.Version, c.version)
+}
+
+// cpeNameMatches reports whether a package name matches a CPE vendor/product
+// token. A wildcard or missing token imposes no constraint; otherwise exact or
+// substring (either direction) is accepted. Substring matching can over-match
+// on very short tokens, which is accepted for this first cut.
+func cpeNameMatches(name, token string) bool {
+	if token == "" || token == "*" || token == "-" {
+		return true
+	}
+	return name == token || strings.Contains(name, token) || strings.Contains(token, name)
+}
+
+// cpeVersionMatches reports a lenient version match. The CPE version field
+// frequently names an affected version family (e.g. "3.0.0" meaning the 3.0.x
+// line), so a package matches on exact equality, substring containment, or a
+// shared major.minor prefix. A wildcard or empty version imposes no constraint.
+func cpeVersionMatches(pkgVersion, cpeVersion string) bool {
+	if cpeVersion == "" || cpeVersion == "*" || cpeVersion == "-" {
+		return true
+	}
+	if pkgVersion == cpeVersion || strings.Contains(pkgVersion, cpeVersion) {
+		return true
+	}
+	return majorMinor(pkgVersion) == majorMinor(cpeVersion)
+}
+
+// majorMinor returns the first two dotted version segments ("3.0" for
+// "3.0.7"). It is used only for the fuzzy CPE version comparison.
+func majorMinor(v string) string {
+	segs := splitSegments(v)
+	switch len(segs) {
+	case 0:
+		return v
+	case 1:
+		return segs[0]
+	default:
+		return segs[0] + "." + segs[1]
+	}
 }

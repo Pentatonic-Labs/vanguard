@@ -103,6 +103,61 @@ func TestNoMatch(t *testing.T) {
 	}
 }
 
+func TestCPEMatch(t *testing.T) {
+	vulns := []cvmcore.Vuln{
+		{
+			ID:   "CVE-2022-3602",
+			CPEs: []string{"cpe:2.3:a:openssl:openssl:3.0.0:*:*:*:*:*:*:*"},
+		},
+	}
+	pkgs := []inventory.Package{
+		pkg("openssl", "3.0.7", "pkg:deb/openssl@3.0.7", "deb"),
+		pkg("libssl", "1.1.1", "pkg:deb/libssl@1.1.1", "deb"),
+	}
+	got := Match(vulns, pkgs)
+	if len(got) != 1 {
+		t.Fatalf("want 1 vuln, got %d", len(got))
+	}
+	// openssl 3.0.7 matches (name + 3.0 major.minor); libssl does not.
+	want := []string{"pkg:deb/openssl@3.0.7"}
+	if !reflect.DeepEqual(got[0].Packages, want) {
+		t.Fatalf("got %v, want %v", got[0].Packages, want)
+	}
+}
+
+func TestCPENoMatch(t *testing.T) {
+	vulns := []cvmcore.Vuln{
+		{
+			ID:   "CVE-2024-1234",
+			CPEs: []string{"cpe:2.3:a:apache:http_server:2.4.0:*:*:*:*:*:*:*"},
+		},
+	}
+	pkgs := []inventory.Package{
+		pkg("openssl", "3.0.7", "pkg:deb/openssl@3.0.7", "deb"),
+	}
+	got := Match(vulns, pkgs)
+	if len(got) != 1 || len(got[0].Packages) != 0 {
+		t.Fatalf("want no packages matched, got %+v", got)
+	}
+}
+
+func TestCPEDedupeWithPurl(t *testing.T) {
+	vulns := []cvmcore.Vuln{
+		{
+			ID:    "CVE-2022-3602",
+			PURLs: []string{"pkg:deb/openssl@3.0.7"},
+			CPEs:  []string{"cpe:2.3:a:openssl:openssl:3.0.0:*:*:*:*:*:*:*"},
+		},
+	}
+	pkgs := []inventory.Package{
+		pkg("openssl", "3.0.7", "pkg:deb/openssl@3.0.7", "deb"),
+	}
+	got := Match(vulns, pkgs)
+	if len(got) != 1 || len(got[0].Packages) != 1 {
+		t.Fatalf("want one deduped package, got %+v", got)
+	}
+}
+
 func TestDedupeAcrossPurlAndRange(t *testing.T) {
 	vulns := []cvmcore.Vuln{
 		{
