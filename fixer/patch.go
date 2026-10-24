@@ -33,10 +33,12 @@ func parseBump(suggestion string) (old, new string, err error) {
 	return old, new, nil
 }
 
-// Apply performs the dependency-bump in the finding's fix.suggestion across the
-// text files under dir and returns the resulting unified diff. Files that do
-// not contain the old version are left untouched. Apply mutates files on disk;
-// callers should run it against a worktree or copy, never a live checkout.
+// Apply performs the dependency bump in the finding's fix.suggestion, editing
+// the appropriate manifest file under dir, and returns the resulting unified
+// diff. Known ecosystems (golang, pypi, npm) get precise single-line edits;
+// unknown ecosystems fall back to a best-effort string replacement. Apply
+// mutates files on disk; callers should run it against a worktree or copy,
+// never a live checkout.
 func Apply(f findings.Finding, dir string) ([]byte, error) {
 	if f.Fix == nil {
 		return nil, fmt.Errorf("finding %q has no fix", f.ID)
@@ -45,9 +47,25 @@ func Apply(f findings.Finding, dir string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	eco, name := purlEcosystemAndName(f.Target.Ref)
+	switch eco {
+	case "golang":
+		return editVersionLine(dir, "go.mod", name, new, goVersionInLine)
+	case "pypi":
+		return editVersionLine(dir, "requirements.txt", name, new, requirementsVersionInLine)
+	case "npm":
+		return editVersionLine(dir, "package.json", name, new, packageJSONVersionInLine)
+	default:
+		return replaceAllVersions(dir, old, new)
+	}
+}
 
+// replaceAllVersions is the legacy, imprecise fallback: it replaces every
+// occurrence of old with new in text files under dir. It is used only for
+// ecosystems without a precise manifest handler.
+func replaceAllVersions(dir, old, new string) ([]byte, error) {
 	var out bytes.Buffer
-	err = filepath.WalkDir(dir, func(path string, d fs.DirEntry, walkErr error) error {
+	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
