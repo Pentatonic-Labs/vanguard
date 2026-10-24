@@ -144,7 +144,7 @@ func (c *Client) FetchNVDRecent(ctx context.Context, since time.Time) ([]byte, e
 	if pageSize <= 0 {
 		pageSize = 2000
 	}
-	apiKey := os.Getenv("NVD_API_KEY")
+	apiKey := strings.TrimSpace(os.Getenv("NVD_API_KEY"))
 	var all []json.RawMessage
 	for start := 0; ; start += pageSize {
 		q := url.Values{}
