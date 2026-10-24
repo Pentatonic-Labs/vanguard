@@ -68,6 +68,21 @@ for f in claims:
 PY
 ```
 
+For a frontier-model **agent** that acts, observes, and decides the next step — and
+only reports a finding once its repro re-executes successfully — use the agentic loop:
+
+```python
+from redteam.agent import AgenticAttacker
+
+agent = AgenticAttacker("http://localhost:3000", seed_paths=["/", "/login"])
+for f in agent.attack():
+    print(f.vuln.severity, "-", f.vuln.summary, "— repro:", f.proof.repro)
+```
+
+The agent's `submit_finding` tool re-runs the repro through the proof gate and rejects
+anything that doesn't hold, so it keeps hunting until it has a *proven* repro or its
+step budget is spent.
+
 - Requires Python 3.10+ and [uv](https://docs.astral.sh/uv/).
 - `DEEPSEEK_API_KEY` (or any OpenAI-compatible endpoint via `APIAttacker(base_url=..., model=...)`).
 - The attacker's toolset is bounded: HTTP to the target only, no shell, no filesystem.

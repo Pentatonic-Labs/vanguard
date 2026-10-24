@@ -1,0 +1,103 @@
+"""Tests for the agentic tool-use loop: act -> observe -> decide -> prove."""
+
+from __future__ import annotations
+
+import json
+import urllib.parse
+
+from redteam.agent import AgenticAttacker
+
+
+def _make_http(statuses: dict[str, int]):
+    """A deterministic stub HTTP transport: path -> status, default 404."""
+
+    def http(req, timeout):
+        url = req.get("url") or req.get("path") or "/"
+        path = urllib.parse.urlparse(url).path
+        return {"status": statuses.get(path, 404), "headers": {}, "body": ""}
+
+    return http
+
+
+def _scripted(*actions):
+    """A chat seam that returns the given actions in order, as JSON."""
+    it = iter(actions)
+
+    def chat(prompt):
+        return json.dumps(next(it))
+
+    return chat
+
+
+def test_submit_finding_is_recorded_when_repro_verifies():
+    attacker = AgenticAttacker(
+        "http://target",
+        chat=_scripted(
+            {
+                "tool": "submit_finding",
+                "args": {
+                    "summary": "admin panel reachable",
+                    "severity": "high",
+                    "cwe": ["CWE-200"],
+                    "repro": "curl -s http://target/admin",
+                    "impact": "exposes the admin surface",
+                },
+            },
+            {"tool": "done", "args": {}},
+        ),
+        http=_make_http({"/admin": 200}),
+    )
+
+    findings = attacker.attack()
+
+    assert len(findings) == 1
+    assert findings[0].vuln.summary == "admin panel reachable"
+
+
+def test_unverified_finding_is_rejected_and_loop_continues():
+    # The first submission claims "unauthenticated access" but the endpoint
+    # returns 401, which contradicts the claim -> NOT recorded. The second
+    # submission has a repro that actually returns 200 -> recorded.
+    attacker = AgenticAttacker(
+        "http://target",
+        chat=_scripted(
+            {
+                "tool": "submit_finding",
+                "args": {
+                    "summary": "unauthenticated access to admin",
+                    "severity": "critical",
+                    "cwe": ["CWE-287"],
+                    "repro": "curl -s http://target/admin",
+                    "impact": "anyone can reach the admin panel",
+                },
+            },
+            {
+                "tool": "submit_finding",
+                "args": {
+                    "summary": "admin panel reachable",
+                    "severity": "high",
+                    "cwe": ["CWE-200"],
+                    "repro": "curl -s http://target/admin2",
+                    "impact": "exposes the admin surface",
+                },
+            },
+            {"tool": "done", "args": {}},
+        ),
+        http=_make_http({"/admin": 401, "/admin2": 200}),
+    )
+
+    findings = attacker.attack()
+
+    assert [f.vuln.summary for f in findings] == ["admin panel reachable"]
+
+
+def test_cross_origin_request_is_refused():
+    attacker = AgenticAttacker(
+        "http://target",
+        chat=_scripted({"tool": "done", "args": {}}),
+        http=_make_http({}),
+    )
+
+    obs = attacker._run_http({"method": "GET", "path": "http://evil.com/x"})
+
+    assert "refused" in obs["body"]
