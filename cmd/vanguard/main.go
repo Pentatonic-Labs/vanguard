@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"github.com/Pentatonic-Labs/vanguard/cvmcore"
+	"github.com/Pentatonic-Labs/vanguard/cvmcore/fetch"
 	"github.com/Pentatonic-Labs/vanguard/cvmcore/pipeline"
 	"github.com/Pentatonic-Labs/vanguard/cvmcore/remediate"
 	"github.com/Pentatonic-Labs/vanguard/inventory"
@@ -32,6 +33,7 @@ func main() {
 // scanConfig builds the pipeline configuration shared by scan and watch.
 func scanConfig() pipeline.Config {
 	cfg := pipeline.Config{
+		ParseCacheDir: fetch.DefaultCacheDir(),
 		OnFeedError: func(feed string, err error) {
 			fmt.Fprintf(os.Stderr, "vanguard: warning: %s feed skipped: %v\n", feed, err)
 		},

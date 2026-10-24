@@ -31,6 +31,10 @@ type Config struct {
 	// detected from the host OS (see DetectOSID).
 	OSVEcosystem string
 
+	// ParseCacheDir, when non-empty, caches the parsed OSV export keyed by its
+	// content, so an unchanged export is not re-parsed on every run.
+	ParseCacheDir string
+
 	// DetectOSID returns the host OS ID (e.g. "ubuntu", "debian"); defaults
 	// to inventory.DetectOSID.
 	DetectOSID func() string
@@ -82,6 +86,25 @@ func (c Config) withDefaults() Config {
 	return out
 }
 
+// parseOSV parses the OSV export, reusing the parsed-result cache keyed by the
+// export content when ParseCacheDir is set.
+func (c Config) parseOSV(raw []byte) ([]cvmcore.Vuln, error) {
+	if c.ParseCacheDir == "" {
+		return c.ParseOSVExport(raw)
+	}
+	pc := parsedCache{dir: c.ParseCacheDir}
+	key := contentHash(raw)
+	if v, ok := pc.load(key); ok {
+		return v, nil
+	}
+	v, err := c.ParseOSVExport(raw)
+	if err != nil {
+		return nil, err
+	}
+	_ = pc.save(key, v)
+	return v, nil
+}
+
 // Run executes the reactive loop and returns triage decisions, highest score
 // first. Every step runs through the configured (or default) functions, so the
 // whole pipeline is testable offline.
@@ -125,9 +148,21 @@ func Run(ctx context.Context, cfg Config) ([]cvmcore.Decision, error) {
 	if osvEco == "" {
 		osvEco = inventory.OSVEcosystem(cfg.DetectOSID())
 	}
-	fetchOSV := func(ctx context.Context) ([]byte, error) { return cfg.FetchOSVExport(ctx, osvEco) }
-	if err := runFeed("OSV", fetchOSV, cfg.ParseOSVExport); err != nil {
-		return nil, err
+	rawOSV, err := cfg.FetchOSVExport(ctx, osvEco)
+	if err != nil {
+		if cfg.OnFeedError != nil {
+			cfg.OnFeedError("OSV", err)
+		} else {
+			return nil, fmt.Errorf("OSV: %w", err)
+		}
+	} else if osv, err := cfg.parseOSV(rawOSV); err != nil {
+		if cfg.OnFeedError != nil {
+			cfg.OnFeedError("OSV", err)
+		} else {
+			return nil, fmt.Errorf("OSV: %w", err)
+		}
+	} else {
+		vulns = append(vulns, osv...)
 	}
 
 	normalized := normalize.Normalize(vulns)
