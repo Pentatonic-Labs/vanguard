@@ -5,6 +5,7 @@ package pipeline
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/Pentatonic-Labs/vanguard/cvmcore"
@@ -43,6 +44,11 @@ type Config struct {
 	// to inventory.DetectOSVersion.
 	DetectOSVersion func() string
 
+	// PackagesInUse returns the set of package names whose libraries are
+	// currently loaded by a running process; used for reachability. Defaults to
+	// inventory.PackagesInUse.
+	PackagesInUse func() map[string]bool
+
 	// OnFeedError, if set, is called when a feed fails; Run then skips that
 	// feed and continues. When nil, the first feed failure aborts Run.
 	OnFeedError func(feed string, err error)
@@ -76,6 +82,9 @@ func (c Config) withDefaults() Config {
 	}
 	if out.DetectOSVersion == nil {
 		out.DetectOSVersion = inventory.DetectOSVersion
+	}
+	if out.PackagesInUse == nil {
+		out.PackagesInUse = inventory.PackagesInUse
 	}
 	if out.DetectOSID == nil {
 		out.DetectOSID = inventory.DetectOSID
@@ -166,5 +175,28 @@ func Run(ctx context.Context, cfg Config) ([]cvmcore.Decision, error) {
 	}
 
 	normalized := normalize.Normalize(vulns)
-	return triage.Triage(match.Match(normalized, pkgs, cfg.DetectOSVersion())), nil
+	matches := match.Match(normalized, pkgs, cfg.DetectOSVersion())
+	inUse := cfg.PackagesInUse()
+	for i := range matches {
+		for _, purl := range matches[i].Packages {
+			if inUse[purlPackageName(purl)] {
+				matches[i].Reachable = true
+				break
+			}
+		}
+	}
+	return triage.Triage(matches), nil
+}
+
+// purlPackageName extracts the package name from a purl like
+// "pkg:deb/openssl@3.0.13".
+func purlPackageName(p string) string {
+	rest := p
+	if i := strings.LastIndexByte(rest, '/'); i >= 0 {
+		rest = rest[i+1:]
+	}
+	if i := strings.IndexAny(rest, "@?"); i >= 0 {
+		rest = rest[:i]
+	}
+	return rest
 }

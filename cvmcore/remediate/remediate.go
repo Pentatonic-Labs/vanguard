@@ -16,6 +16,7 @@ type Proposal struct {
 	Severity  string  `json:"severity"`
 	CVSS      float64 `json:"cvss"`
 	InKEV     bool    `json:"in_kev"`
+	Reachable bool    `json:"reachable"`
 	Purl      string  `json:"purl"`
 	Package   string  `json:"package"`
 	Installed string  `json:"installed"`
@@ -42,6 +43,11 @@ func (p Proposal) Explain() string {
 	fmt.Fprintf(&b, "\n  Package: %s (installed %s)", p.Package, p.Installed)
 	if p.Summary != "" {
 		fmt.Fprintf(&b, "\n  Why it matters: %s", p.Summary)
+	}
+	if p.Reachable {
+		b.WriteString("\n  Status: loaded by a running process")
+	} else {
+		b.WriteString("\n  Status: not currently loaded by any running process")
 	}
 	if p.HasFix() {
 		fmt.Fprintf(&b, "\n  Fix: upgrade %s to >= %s", p.Package, p.Fixed)
@@ -77,6 +83,7 @@ func Build(decisions []cvmcore.Decision, release string) []Proposal {
 				Severity:  d.Match.Vuln.Severity,
 				CVSS:      d.Match.Vuln.CVSS,
 				InKEV:     d.Match.Vuln.InKEV,
+				Reachable: d.Match.Reachable,
 				Purl:      purl,
 				Package:   name,
 				Installed: installed,

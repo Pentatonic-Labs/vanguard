@@ -36,6 +36,7 @@ func TestRunEndToEnd(t *testing.T) {
 				{Name: "testpkg", Version: "1.0", Purl: "pkg:deb/testpkg", Ecosystem: "deb"},
 			}, nil
 		},
+		PackagesInUse: func() map[string]bool { return nil },
 	}
 
 	decisions, err := Run(context.Background(), cfg)
@@ -73,4 +74,44 @@ func TestRunFetchError(t *testing.T) {
 	if _, err := Run(context.Background(), cfg); err == nil {
 		t.Fatal("expected error from failed fetch, got nil")
 	}
+}
+
+func TestRunReachability(t *testing.T) {
+	cfg := Config{
+		FetchKEV: func(ctx context.Context) ([]byte, error) { return []byte(kevFixture), nil },
+		FetchNVD: func(ctx context.Context) ([]byte, error) { return []byte(nvdFixture), nil },
+		FetchOSVExport: func(ctx context.Context, ecosystem string) ([]byte, error) {
+			return []byte("fake-zip"), nil
+		},
+		ParseOSVExport: func(data []byte) ([]cvmcore.Vuln, error) {
+			return []cvmcore.Vuln{{
+				ID:       "GHSA-0000-0000-0000",
+				Source:   "osv",
+				Severity: "critical",
+				CVSS:     9.8,
+				PURLs:    []string{"pkg:deb/testpkg"},
+				Affected: []cvmcore.VersionRange{{Ecosystem: "deb", Fixed: "2.0"}},
+			}}, nil
+		},
+		CollectPackages: func() ([]inventory.Package, error) {
+			return []inventory.Package{
+				{Name: "testpkg", Version: "1.0", Purl: "pkg:deb/testpkg", Ecosystem: "deb"},
+			}, nil
+		},
+		PackagesInUse: func() map[string]bool { return map[string]bool{"testpkg": true} },
+	}
+
+	decisions, err := Run(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	for _, d := range decisions {
+		if d.Match.Vuln.ID == "GHSA-0000-0000-0000" {
+			if !d.Match.Reachable {
+				t.Error("expected the matched testpkg to be Reachable")
+			}
+			return
+		}
+	}
+	t.Fatal("OSV decision not found")
 }
