@@ -32,7 +32,7 @@ class APIAttacker:
         base_url: str = "https://api.deepseek.com/v1",
         model: str = "deepseek-chat",
         timeout: float = 30.0,
-        max_rounds: int = 3,
+        max_rounds: int = 5,
         max_probes_per_round: int = 6,
         seed_paths: list[str] | None = None,
     ) -> None:
@@ -66,25 +66,31 @@ class APIAttacker:
 
     def _suggest(self, target: str, probes: list[dict[str, Any]]) -> list[dict[str, Any]]:
         prompt = (
-            "You are red-teaming a service the operator owns (authorized). "
-            f"Target: {target}\n"
+            "You are an attacker conducting an authorized penetration test of a service "
+            "the operator owns. Your goal is to find ANY way in: authentication bypass, "
+            "IDOR, injection, privilege escalation, information disclosure, or chaining "
+            "several weaknesses together. Be adversarial, creative, and persistent — "
+            "assume the defender has made mistakes and hunt for them."
+            f"\nTarget: {target}\n"
             "Probe results so far:\n"
             f"{json.dumps(probes, indent=2)}\n\n"
             f"Suggest up to {self._max_probes_per_round} concrete next HTTP requests "
-            "(method, path, optional body) most likely to expose a vulnerability. "
-            "Respond with ONLY a JSON array, no prose: "
-            '[{"method": "GET|POST", "path": "/...", "body": "..."}]'
+            "(method, path, optional body) that would help you get in or expose a weakness. "
+            "Use what you have already learned — IDs, tokens, endpoints, error messages — "
+            "to chain into the next probe. Respond with ONLY a JSON array, no prose: "
+            '[{"method": "GET|POST|PUT|DELETE", "path": "/...", "body": "..."}]'
         )
         return _extract_json_array(self._chat(prompt))
 
     def _final_prompt(self, target: str, probes: list[dict[str, Any]]) -> str:
         return (
-            "You are a security auditor red-teaming a service the operator owns and is "
-            "authorized to test.\n"
-            f"Target: {target}\n"
+            "You are an attacker who has just finished an authorized penetration test "
+            "of a service the operator owns. Report every weakness you found and every "
+            "way in, however small — be concrete and adversarial, not defensive."
+            f"\nTarget: {target}\n"
             "All HTTP probe results:\n"
             f"{json.dumps(probes, indent=2)}\n\n"
-            "Identify concrete, machine-checkable vulnerabilities. Respond with ONLY a JSON "
+            "Report concrete, machine-checkable vulnerabilities. Respond with ONLY a JSON "
             "array, no prose, of findings. Each element must be:\n"
             '{"summary": "...", "severity": "critical|high|medium|low", "cwe": ["CWE-..."], '
             '"repro": "a curl command that proves the issue", "impact": "...", '
