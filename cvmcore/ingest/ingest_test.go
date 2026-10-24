@@ -130,6 +130,37 @@ func TestParseOSVBatch(t *testing.T) {
 	}
 }
 
+const osvQueryBatchFixture = `{
+  "results": [
+    {"vulns": [
+      {"id": "OSV-Q1", "summary": "first", "database_specific": {"severity": "HIGH"}},
+      {"summary": "missing id skipped"}
+    ]},
+    {"vulns": [
+      {"id": "OSV-Q2", "severity": [{"type": "CVSS_V3", "score": "9.8"}]}
+    ]}
+  ]
+}`
+
+func TestParseOSVQueryBatch(t *testing.T) {
+	vulns, err := ParseOSVQueryBatch([]byte(osvQueryBatchFixture))
+	if err != nil {
+		t.Fatalf("ParseOSVQueryBatch: %v", err)
+	}
+	if len(vulns) != 2 {
+		t.Fatalf("got %d vulns, want 2 (id-less record skipped)", len(vulns))
+	}
+	if vulns[0].ID != "OSV-Q1" || vulns[0].Source != "osv" {
+		t.Errorf("vulns[0] = %q/%q, want OSV-Q1/osv", vulns[0].ID, vulns[0].Source)
+	}
+	if vulns[0].Severity != "high" {
+		t.Errorf("severity from database_specific = %q, want high", vulns[0].Severity)
+	}
+	if math.Abs(vulns[1].CVSS-9.8) > 0.01 {
+		t.Errorf("vulns[1].CVSS = %v, want 9.8", vulns[1].CVSS)
+	}
+}
+
 func TestParseOSVIntroducedZeroIsAllVersions(t *testing.T) {
 	const fixture = `{
 	  "id": "OSV-3",

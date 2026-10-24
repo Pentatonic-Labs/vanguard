@@ -59,6 +59,42 @@ type osvDatabaseSpecific struct {
 	Severity string `json:"severity"`
 }
 
+// osvQueryBatchResponse is the OSV.dev querybatch response, where each result
+// corresponds to one queried package and carries its affected vulns.
+type osvQueryBatchResponse struct {
+	Results []osvQueryBatchResult `json:"results"`
+}
+
+// osvQueryBatchResult is one entry of a querybatch response.
+type osvQueryBatchResult struct {
+	Vulns []json.RawMessage `json:"vulns"`
+}
+
+// ParseOSVQueryBatch parses an OSV.dev querybatch response into canonical
+// vulnerabilities, flattening results[].vulns[] into a single list.
+func ParseOSVQueryBatch(data []byte) ([]cvmcore.Vuln, error) {
+	var resp osvQueryBatchResponse
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, fmt.Errorf("parse OSV querybatch: %w", err)
+	}
+	var records []json.RawMessage
+	for _, r := range resp.Results {
+		records = append(records, r.Vulns...)
+	}
+	vulns := make([]cvmcore.Vuln, 0, len(records))
+	for _, raw := range records {
+		var rec osvRecord
+		if err := json.Unmarshal(raw, &rec); err != nil {
+			return nil, fmt.Errorf("parse OSV record: %w", err)
+		}
+		if rec.ID == "" {
+			continue
+		}
+		vulns = append(vulns, rec.toVuln())
+	}
+	return vulns, nil
+}
+
 // ParseOSV parses either a single OSV record or a batch document
 // ({"vulns":[...]}) into canonical vulnerabilities.
 func ParseOSV(data []byte) ([]cvmcore.Vuln, error) {

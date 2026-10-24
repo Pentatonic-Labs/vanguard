@@ -2,19 +2,23 @@
 package fetch
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strconv"
 	"sync"
 	"time"
 )
 
 // Default feed endpoint URLs.
 const (
-	DefaultKEVURL = "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
-	DefaultOSVURL = "https://api.osv.dev/v1/vulns"
-	DefaultNVDURL = "https://services.nvd.nist.gov/rest/json/cves/2.0"
+	DefaultKEVURL      = "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
+	DefaultOSVQueryURL = "https://api.osv.dev/v1/querybatch"
+	DefaultNVDURL      = "https://services.nvd.nist.gov/rest/json/cves/2.0"
 )
 
 const defaultUserAgent = "vanguard/0.1 (+https://github.com/Pentatonic-Labs/vanguard)"
@@ -23,9 +27,13 @@ const defaultUserAgent = "vanguard/0.1 (+https://github.com/Pentatonic-Labs/vang
 // timeout, a User-Agent, and simple rate-limit courtesy between requests.
 type Client struct {
 	// URLs may be overridden (e.g. to point at a test server).
-	KEVURL string
-	OSVURL string
-	NVDURL string
+	KEVURL      string
+	OSVQueryURL string
+	NVDURL      string
+
+	// NVDPageSize is the NVD resultsPerPage used when paginating. Zero falls
+	// back to 2000.
+	NVDPageSize int
 
 	// MinDelay is the minimum gap between requests. Zero disables the delay.
 	MinDelay time.Duration
@@ -49,12 +57,13 @@ func WithMinDelay(d time.Duration) Option {
 // a small default minimum delay between requests.
 func NewClient(timeout time.Duration, opts ...Option) *Client {
 	c := &Client{
-		KEVURL:     DefaultKEVURL,
-		OSVURL:     DefaultOSVURL,
-		NVDURL:     DefaultNVDURL,
-		MinDelay:   100 * time.Millisecond,
-		httpClient: &http.Client{Timeout: timeout},
-		userAgent:  defaultUserAgent,
+		KEVURL:      DefaultKEVURL,
+		OSVQueryURL: DefaultOSVQueryURL,
+		NVDURL:      DefaultNVDURL,
+		NVDPageSize: 2000,
+		MinDelay:    100 * time.Millisecond,
+		httpClient:  &http.Client{Timeout: timeout},
+		userAgent:   defaultUserAgent,
 	}
 	for _, o := range opts {
 		o(c)
@@ -67,14 +76,118 @@ func (c *Client) FetchKEV(ctx context.Context) ([]byte, error) {
 	return c.get(ctx, c.KEVURL)
 }
 
-// FetchOSV downloads the OSV.dev vulnerability list.
-func (c *Client) FetchOSV(ctx context.Context) ([]byte, error) {
-	return c.get(ctx, c.OSVURL)
-}
-
 // FetchNVD downloads the NVD 2.0 CVE feed.
 func (c *Client) FetchNVD(ctx context.Context) ([]byte, error) {
 	return c.get(ctx, c.NVDURL)
+}
+
+// maxQueryBatch is the largest number of purls sent per OSV querybatch request.
+const maxQueryBatch = 1000
+
+// QueryBatch queries OSV.dev for vulnerabilities affecting the given package
+// purls, chunking into requests of at most maxQueryBatch purls. It returns a
+// document of the form {"results":[...]}, the same shape OSV.dev returns.
+func (c *Client) QueryBatch(ctx context.Context, purls []string) ([]byte, error) {
+	all := make([]json.RawMessage, 0)
+	for start := 0; start < len(purls); start += maxQueryBatch {
+		end := start + maxQueryBatch
+		if end > len(purls) {
+			end = len(purls)
+		}
+		queries := make([]map[string]map[string]string, 0, end-start)
+		for _, p := range purls[start:end] {
+			queries = append(queries, map[string]map[string]string{"package": {"purl": p}})
+		}
+		body, err := json.Marshal(map[string]any{"queries": queries})
+		if err != nil {
+			return nil, fmt.Errorf("marshal OSV querybatch: %w", err)
+		}
+		respBody, err := c.postJSON(ctx, c.OSVQueryURL, body)
+		if err != nil {
+			return nil, err
+		}
+		var page struct {
+			Results []json.RawMessage `json:"results"`
+		}
+		if err := json.Unmarshal(respBody, &page); err != nil {
+			return nil, fmt.Errorf("parse OSV querybatch response: %w", err)
+		}
+		all = append(all, page.Results...)
+	}
+	out, err := json.Marshal(struct {
+		Results []json.RawMessage `json:"results"`
+	}{Results: all})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// FetchNVDRecent downloads CVEs modified on or after since, paginating through
+// all results. NVD 2.0 returns at most 2000 CVEs per page; without a recency
+// filter and pagination only the first (oldest) page is fetched.
+func (c *Client) FetchNVDRecent(ctx context.Context, since time.Time) ([]byte, error) {
+	pageSize := c.NVDPageSize
+	if pageSize <= 0 {
+		pageSize = 2000
+	}
+	var all []json.RawMessage
+	for start := 0; ; start += pageSize {
+		q := url.Values{}
+		q.Set("lastModStartDate", since.UTC().Format("2006-01-02T15:04:05.000-07:00"))
+		q.Set("lastModEndDate", time.Now().UTC().Format("2006-01-02T15:04:05.000-07:00"))
+		q.Set("resultsPerPage", strconv.Itoa(pageSize))
+		q.Set("startIndex", strconv.Itoa(start))
+		body, err := c.get(ctx, c.NVDURL+"?"+q.Encode())
+		if err != nil {
+			return nil, err
+		}
+		var page struct {
+			Vulnerabilities []json.RawMessage `json:"vulnerabilities"`
+		}
+		if err := json.Unmarshal(body, &page); err != nil {
+			return nil, fmt.Errorf("parse NVD page: %w", err)
+		}
+		all = append(all, page.Vulnerabilities...)
+		if len(page.Vulnerabilities) < pageSize {
+			break
+		}
+	}
+	out, err := json.Marshal(struct {
+		Vulnerabilities []json.RawMessage `json:"vulnerabilities"`
+	}{Vulnerabilities: all})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// postJSON performs a POST with a JSON body and returns the response body.
+func (c *Client) postJSON(ctx context.Context, url string, body []byte) ([]byte, error) {
+	if err := c.throttle(ctx); err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("build request for %s: %w", url, err)
+	}
+	req.Header.Set("User-Agent", c.userAgent)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("post %s: %w", url, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("post %s: unexpected status %d", url, resp.StatusCode)
+	}
+	out, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", url, err)
+	}
+	return out, nil
 }
 
 // get performs a GET with rate-limit courtesy and returns the response body.

@@ -1,5 +1,5 @@
 // Package pipeline wires the reactive CVM loop end to end:
-// fetch -> parse -> normalize -> match -> triage.
+// collect inventory -> fetch/query feeds -> parse -> normalize -> match -> triage.
 package pipeline
 
 import (
@@ -20,12 +20,12 @@ import (
 // defaults, so tests can override only what they need.
 type Config struct {
 	FetchKEV func(ctx context.Context) ([]byte, error)
-	FetchOSV func(ctx context.Context) ([]byte, error)
 	FetchNVD func(ctx context.Context) ([]byte, error)
+	QueryOSV func(ctx context.Context, purls []string) ([]byte, error)
 
-	ParseKEV func(data []byte) ([]cvmcore.Vuln, error)
-	ParseOSV func(data []byte) ([]cvmcore.Vuln, error)
-	ParseNVD func(data []byte) ([]cvmcore.Vuln, error)
+	ParseKEV           func(data []byte) ([]cvmcore.Vuln, error)
+	ParseNVD           func(data []byte) ([]cvmcore.Vuln, error)
+	ParseOSVQueryBatch func(data []byte) ([]cvmcore.Vuln, error)
 
 	CollectPackages func() ([]inventory.Package, error)
 }
@@ -37,20 +37,22 @@ func (c Config) withDefaults() Config {
 	if out.FetchKEV == nil {
 		out.FetchKEV = fc.FetchKEV
 	}
-	if out.FetchOSV == nil {
-		out.FetchOSV = fc.FetchOSV
-	}
 	if out.FetchNVD == nil {
-		out.FetchNVD = fc.FetchNVD
+		out.FetchNVD = func(ctx context.Context) ([]byte, error) {
+			return fc.FetchNVDRecent(ctx, time.Now().Add(-30*24*time.Hour))
+		}
+	}
+	if out.QueryOSV == nil {
+		out.QueryOSV = fc.QueryBatch
 	}
 	if out.ParseKEV == nil {
 		out.ParseKEV = ingest.ParseKEV
 	}
-	if out.ParseOSV == nil {
-		out.ParseOSV = ingest.ParseOSV
-	}
 	if out.ParseNVD == nil {
 		out.ParseNVD = ingest.ParseNVD
+	}
+	if out.ParseOSVQueryBatch == nil {
+		out.ParseOSVQueryBatch = ingest.ParseOSVQueryBatch
 	}
 	if out.CollectPackages == nil {
 		out.CollectPackages = inventory.CollectOSPackages
@@ -64,34 +66,52 @@ func (c Config) withDefaults() Config {
 func Run(ctx context.Context, cfg Config) ([]cvmcore.Decision, error) {
 	cfg = cfg.withDefaults()
 
-	steps := []struct {
-		name  string
-		fetch func(context.Context) ([]byte, error)
-		parse func([]byte) ([]cvmcore.Vuln, error)
-	}{
-		{"KEV", cfg.FetchKEV, cfg.ParseKEV},
-		{"OSV", cfg.FetchOSV, cfg.ParseOSV},
-		{"NVD", cfg.FetchNVD, cfg.ParseNVD},
-	}
-
-	var vulns []cvmcore.Vuln
-	for _, s := range steps {
-		raw, err := s.fetch(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("fetch %s: %w", s.name, err)
-		}
-		parsed, err := s.parse(raw)
-		if err != nil {
-			return nil, fmt.Errorf("parse %s: %w", s.name, err)
-		}
-		vulns = append(vulns, parsed...)
-	}
-
-	normalized := normalize.Normalize(vulns)
-
+	// Collect inventory first so OSV can be queried for the installed purls.
 	pkgs, err := cfg.CollectPackages()
 	if err != nil {
 		return nil, fmt.Errorf("collect inventory: %w", err)
 	}
+	purls := make([]string, 0, len(pkgs))
+	for _, p := range pkgs {
+		if p.Purl != "" {
+			purls = append(purls, p.Purl)
+		}
+	}
+
+	var vulns []cvmcore.Vuln
+
+	raw, err := cfg.FetchKEV(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("fetch KEV: %w", err)
+	}
+	kev, err := cfg.ParseKEV(raw)
+	if err != nil {
+		return nil, fmt.Errorf("parse KEV: %w", err)
+	}
+	vulns = append(vulns, kev...)
+
+	raw, err = cfg.FetchNVD(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("fetch NVD: %w", err)
+	}
+	nvd, err := cfg.ParseNVD(raw)
+	if err != nil {
+		return nil, fmt.Errorf("parse NVD: %w", err)
+	}
+	vulns = append(vulns, nvd...)
+
+	if len(purls) > 0 {
+		raw, err := cfg.QueryOSV(ctx, purls)
+		if err != nil {
+			return nil, fmt.Errorf("query OSV: %w", err)
+		}
+		osv, err := cfg.ParseOSVQueryBatch(raw)
+		if err != nil {
+			return nil, fmt.Errorf("parse OSV: %w", err)
+		}
+		vulns = append(vulns, osv...)
+	}
+
+	normalized := normalize.Normalize(vulns)
 	return triage.Triage(match.Match(normalized, pkgs)), nil
 }

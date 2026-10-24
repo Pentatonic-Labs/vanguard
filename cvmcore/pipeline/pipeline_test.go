@@ -10,15 +10,15 @@ import (
 
 const kevFixture = `{"vulnerabilities":[{"cveID":"CVE-2024-0001","vulnerabilityName":"Test KEV","shortDescription":"Actively exploited test","knownRansomwareCampaignUse":"Known"}]}`
 
-const osvFixture = `{"vulns":[{"id":"GHSA-0000-0000-0000","summary":"Test OSV vuln","affected":[{"package":{"ecosystem":"Debian","name":"testpkg"},"ranges":[{"type":"ECOSYSTEM","events":[{"introduced":"0"},{"fixed":"2.0"}]}]}],"severity":[{"type":"CVSS_V3","score":"CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"}]}]}`
+const osvFixture = `{"results":[{"vulns":[{"id":"GHSA-0000-0000-0000","summary":"Test OSV vuln","affected":[{"package":{"ecosystem":"Debian","name":"testpkg"},"ranges":[{"type":"ECOSYSTEM","events":[{"introduced":"0"},{"fixed":"2.0"}]}]}],"severity":[{"type":"CVSS_V3","score":"CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"}]}]}]}`
 
 const nvdFixture = `{"vulnerabilities":[{"cve":{"id":"CVE-2024-0002","descriptions":[{"lang":"en","value":"Test NVD vuln"}],"metrics":{"cvssMetricV31":[{"cvssData":{"baseScore":5.0,"baseSeverity":"MEDIUM"}}]},"configurations":[{"nodes":[{"cpeMatch":[{"criteria":"cpe:2.3:a:vendor:product:1.0:*:*:*:*:*:*:*","vulnerable":true}]}]}]}}]}`
 
 func TestRunEndToEnd(t *testing.T) {
 	cfg := Config{
 		FetchKEV: func(ctx context.Context) ([]byte, error) { return []byte(kevFixture), nil },
-		FetchOSV: func(ctx context.Context) ([]byte, error) { return []byte(osvFixture), nil },
 		FetchNVD: func(ctx context.Context) ([]byte, error) { return []byte(nvdFixture), nil },
+		QueryOSV: func(ctx context.Context, purls []string) ([]byte, error) { return []byte(osvFixture), nil },
 		CollectPackages: func() ([]inventory.Package, error) {
 			return []inventory.Package{
 				{Name: "testpkg", Version: "1.0", Purl: "pkg:deb/testpkg", Ecosystem: "deb"},
@@ -52,6 +52,9 @@ func TestRunFetchError(t *testing.T) {
 	cfg := Config{
 		FetchKEV: func(ctx context.Context) ([]byte, error) {
 			return nil, context.DeadlineExceeded
+		},
+		CollectPackages: func() ([]inventory.Package, error) {
+			return nil, nil
 		},
 	}
 
