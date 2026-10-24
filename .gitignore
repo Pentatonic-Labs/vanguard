@@ -10,5 +10,8 @@ __pycache__/
 /vanguard
 *.test
 
+# Findings store (local run data, not committed)
+.vanguard/
+
 # OS / editor
 .DS_Store

@@ -10,6 +10,7 @@ import (
 	"github.com/Pentatonic-Labs/vanguard/cvmcore/fetch"
 	"github.com/Pentatonic-Labs/vanguard/cvmcore/pipeline"
 	"github.com/Pentatonic-Labs/vanguard/cvmcore/remediate"
+	"github.com/Pentatonic-Labs/vanguard/findings"
 	"github.com/Pentatonic-Labs/vanguard/inventory"
 	"github.com/Pentatonic-Labs/vanguard/inventory/dgx/drivers"
 	"github.com/Pentatonic-Labs/vanguard/inventory/dgx/firmware"
@@ -31,6 +32,9 @@ func main() {
 			return
 		case "inventory":
 			runInventory()
+			return
+		case "ui":
+			runUI(os.Args[2:])
 			return
 		}
 	}
@@ -104,6 +108,35 @@ func runInventory() {
 	}
 }
 
+// writeCVMFindings persists the reactive-loop proposals as findings so the UI
+// (vanguard ui) can display them alongside red-team findings.
+func writeCVMFindings(proposals []remediate.Proposal) {
+	list := make([]findings.Finding, 0, len(proposals))
+	for _, p := range proposals {
+		list = append(list, findings.Finding{
+			SchemaVersion: "1.0",
+			ID:            "cvm-" + p.VulnID,
+			RunID:         "cvm-scan",
+			Source:        "cvm",
+			Target:        findings.Target{Kind: "infra", Ref: p.Package},
+			Vuln: findings.Vuln{
+				CWE:      []string{},
+				Summary:  p.VulnID + " in " + p.Package,
+				Severity: p.Severity,
+			},
+			Proof: findings.Proof{
+				Repro:            "OSV/KEV feed match: " + p.VulnID,
+				MachineCheckable: true,
+			},
+			Impact: p.Summary,
+			Fix:    &findings.Fix{Suggestion: p.Explain()},
+		})
+	}
+	if err := findings.Save(findings.DefaultDataDir, "cvm", list); err != nil {
+		fmt.Fprintf(os.Stderr, "vanguard: warning: persist findings: %v\n", err)
+	}
+}
+
 // runScan runs the reactive CVM loop once and prints proposals, highest score
 // first.
 func runScan() {
@@ -113,6 +146,7 @@ func runScan() {
 		os.Exit(1)
 	}
 	proposals := remediate.Build(decisions, inventory.DetectOSVersion())
+	writeCVMFindings(proposals)
 
 	bySource := map[string]int{}
 	for _, d := range decisions {

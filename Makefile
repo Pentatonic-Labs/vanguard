@@ -1,4 +1,4 @@
-.PHONY: build test scan watch inventory redteam demo dogfood
+.PHONY: build test scan watch inventory redteam demo dogfood ui
 
 build:
 	go build ./...
@@ -15,6 +15,9 @@ watch:
 
 inventory:
 	go run ./cmd/vanguard inventory
+
+ui:
+	go run ./cmd/vanguard ui
 
 redteam:
 	cd redteam && uv run --extra dev pytest -q

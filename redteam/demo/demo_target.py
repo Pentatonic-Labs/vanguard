@@ -95,7 +95,7 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self._json({"error": "not found"}, 404)
 
-    def log_message(self, *args):  # noqa: ARG002 - silence request logs
+    def log_message(self, *args):
         pass
 
 

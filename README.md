@@ -59,6 +59,13 @@ frontier-model red-team against the in-repo demo target — use the dogfood comm
 make dogfood   # needs DEEPSEEK_API_KEY for the red-team leg
 ```
 
+Or open the local read-only dashboard — the hardware inventory plus every finding from
+both loops — in a browser:
+
+```sh
+make ui        # then open http://127.0.0.1:8080
+```
+
 Requires Go 1.22+. The first run downloads the OSV export (~800 MB); after that it is
 cached (and the parsed result is cached too).
 
