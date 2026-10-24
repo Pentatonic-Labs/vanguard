@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import time
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -41,8 +42,18 @@ class Harness:
         self._inventory_claim = inventory_claim
         self._sandbox = sandbox
 
-    def run(self, target: str, attacker: Attacker) -> RunResult:
-        """Run the attacker against the target and return only proven findings."""
+    def run(
+        self,
+        target: str,
+        attacker: Attacker,
+        verify: Callable[[Finding], tuple[bool, str]] | None = None,
+    ) -> RunResult:
+        """Run the attacker against the target and return only proven findings.
+
+        When `verify` is provided, each structurally-valid finding's repro is
+        re-executed and must support the claim; unverified claims are downgraded
+        to leads.
+        """
         audit: list[dict[str, Any]] = []
         run_id = str(uuid.uuid4())
 
@@ -64,7 +75,15 @@ class Harness:
         findings: list[Finding] = []
         leads: list[Finding] = []
         for claim in claims:
-            if validate_finding(claim):
+            if not validate_finding(claim):
+                leads.append(claim)
+                continue
+            if verify is None:
+                findings.append(claim)
+                continue
+            verified, reason = verify(claim)
+            audit.append(self._event("verify", id=claim.id, verified=verified, reason=reason))
+            if verified:
                 findings.append(claim)
             else:
                 leads.append(claim)
