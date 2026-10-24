@@ -25,6 +25,11 @@ const (
 
 const defaultUserAgent = "vanguard/0.1 (+https://github.com/Pentatonic-Labs/vanguard)"
 
+// maxResponseBytes caps a feed response body. It is generous — the OSV Debian
+// export is ~79 MiB — but prevents unbounded memory use from a misbehaving or
+// malicious server.
+const maxResponseBytes = 512 << 20 // 512 MiB
+
 // Client fetches vulnerability feed documents over HTTP with a mandatory
 // timeout, a User-Agent, and simple rate-limit courtesy between requests.
 type Client struct {
@@ -226,9 +231,12 @@ func (c *Client) postJSON(ctx context.Context, url string, body []byte) ([]byte,
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("post %s: unexpected status %d", url, resp.StatusCode)
 	}
-	out, err := io.ReadAll(resp.Body)
+	out, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes+1))
 	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", url, err)
+	}
+	if len(out) > maxResponseBytes {
+		return nil, fmt.Errorf("read %s: response exceeds %d bytes", url, maxResponseBytes)
 	}
 	return out, nil
 }
@@ -255,9 +263,12 @@ func (c *Client) get(ctx context.Context, url string) ([]byte, error) {
 		return nil, fmt.Errorf("fetch %s: unexpected status %d", url, resp.StatusCode)
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes+1))
 	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", url, err)
+	}
+	if len(body) > maxResponseBytes {
+		return nil, fmt.Errorf("read %s: response exceeds %d bytes", url, maxResponseBytes)
 	}
 	return body, nil
 }

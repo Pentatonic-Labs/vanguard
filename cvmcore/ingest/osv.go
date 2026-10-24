@@ -105,7 +105,15 @@ func ParseOSVExport(zipData []byte) ([]cvmcore.Vuln, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open OSV export: %w", err)
 	}
+	const (
+		// maxFileBytes caps a single file in the export. OSV vulnerability
+		// records are tiny; this guards against a zip-bomb entry.
+		maxFileBytes = 32 << 20 // 32 MiB
+		// maxTotalBytes caps the total uncompressed size of the export.
+		maxTotalBytes = 2 << 30 // 2 GiB
+	)
 	var vulns []cvmcore.Vuln
+	total := 0
 	for _, f := range zr.File {
 		if f.FileInfo().IsDir() {
 			continue
@@ -114,10 +122,14 @@ func ParseOSVExport(zipData []byte) ([]cvmcore.Vuln, error) {
 		if err != nil {
 			continue
 		}
-		data, err := io.ReadAll(rc)
+		data, err := io.ReadAll(io.LimitReader(rc, maxFileBytes+1))
 		rc.Close()
-		if err != nil {
+		if err != nil || len(data) > maxFileBytes {
 			continue
+		}
+		total += len(data)
+		if total > maxTotalBytes {
+			return nil, fmt.Errorf("OSV export exceeds %d bytes uncompressed (possible zip bomb)", maxTotalBytes)
 		}
 		var rec osvRecord
 		if err := json.Unmarshal(data, &rec); err != nil || rec.ID == "" {
