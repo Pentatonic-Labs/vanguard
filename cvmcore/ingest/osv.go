@@ -109,8 +109,10 @@ func ParseOSVExport(zipData []byte) ([]cvmcore.Vuln, error) {
 		// maxFileBytes caps a single file in the export. OSV vulnerability
 		// records are tiny; this guards against a zip-bomb entry.
 		maxFileBytes = 32 << 20 // 32 MiB
-		// maxTotalBytes caps the total uncompressed size of the export.
-		maxTotalBytes = 2 << 30 // 2 GiB
+		// maxTotalBytes caps the total uncompressed size of the export. It is
+		// generous: the Ubuntu export is ~791 MiB compressed and several GiB
+		// uncompressed. This still bounds a malicious archive.
+		maxTotalBytes = 8 << 30 // 8 GiB
 	)
 	var vulns []cvmcore.Vuln
 	total := 0

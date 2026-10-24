@@ -64,6 +64,13 @@ func Build(decisions []cvmcore.Decision) []Proposal {
 			if name == "" {
 				continue
 			}
+			fixed := fixedFor(d.Match.Vuln, purl)
+			action := string(d.Action)
+			if fixed == "" {
+				// No fix is known yet: there is nothing to propose, so alert the
+				// operator to monitor instead.
+				action = "alert"
+			}
 			out = append(out, Proposal{
 				VulnID:    d.Match.Vuln.ID,
 				Severity:  d.Match.Vuln.Severity,
@@ -72,8 +79,8 @@ func Build(decisions []cvmcore.Decision) []Proposal {
 				Purl:      purl,
 				Package:   name,
 				Installed: installed,
-				Fixed:     fixedFor(d.Match.Vuln, purl),
-				Action:    string(d.Action),
+				Fixed:     fixed,
+				Action:    action,
 				Score:     d.Score,
 				Summary:   d.Match.Vuln.Summary,
 			})

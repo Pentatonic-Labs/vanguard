@@ -27,8 +27,13 @@ type Config struct {
 	ParseNVD       func(data []byte) ([]cvmcore.Vuln, error)
 	ParseOSVExport func(data []byte) ([]cvmcore.Vuln, error)
 
-	// OSVEcosystem names the OSV export to download (e.g. "Debian").
+	// OSVEcosystem names the OSV export to download. When empty it is
+	// detected from the host OS (see DetectOSID).
 	OSVEcosystem string
+
+	// DetectOSID returns the host OS ID (e.g. "ubuntu", "debian"); defaults
+	// to inventory.DetectOSID.
+	DetectOSID func() string
 
 	// OnFeedError, if set, is called when a feed fails; Run then skips that
 	// feed and continues. When nil, the first feed failure aborts Run.
@@ -40,7 +45,7 @@ type Config struct {
 // withDefaults fills unset fields with production defaults.
 func (c Config) withDefaults() Config {
 	out := c
-	fc := fetch.NewClient(30 * time.Second)
+	fc := fetch.NewClient(5 * time.Minute) // the Ubuntu OSV export is ~791 MiB
 	if out.FetchKEV == nil {
 		out.FetchKEV = fc.FetchKEV
 	}
@@ -61,8 +66,8 @@ func (c Config) withDefaults() Config {
 	if out.ParseOSVExport == nil {
 		out.ParseOSVExport = ingest.ParseOSVExport
 	}
-	if out.OSVEcosystem == "" {
-		out.OSVEcosystem = "Debian"
+	if out.DetectOSID == nil {
+		out.DetectOSID = inventory.DetectOSID
 	}
 	if out.CollectPackages == nil {
 		out.CollectPackages = inventory.CollectOSPackages
@@ -109,7 +114,11 @@ func Run(ctx context.Context, cfg Config) ([]cvmcore.Decision, error) {
 	if err := runFeed("NVD", cfg.FetchNVD, cfg.ParseNVD); err != nil {
 		return nil, err
 	}
-	fetchOSV := func(ctx context.Context) ([]byte, error) { return cfg.FetchOSVExport(ctx, cfg.OSVEcosystem) }
+	osvEco := cfg.OSVEcosystem
+	if osvEco == "" {
+		osvEco = inventory.OSVEcosystem(cfg.DetectOSID())
+	}
+	fetchOSV := func(ctx context.Context) ([]byte, error) { return cfg.FetchOSVExport(ctx, osvEco) }
 	if err := runFeed("OSV", fetchOSV, cfg.ParseOSVExport); err != nil {
 		return nil, err
 	}

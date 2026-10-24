@@ -25,10 +25,10 @@ const (
 
 const defaultUserAgent = "vanguard/0.1 (+https://github.com/Pentatonic-Labs/vanguard)"
 
-// maxResponseBytes caps a feed response body. It is generous — the OSV Debian
-// export is ~79 MiB — but prevents unbounded memory use from a misbehaving or
+// maxResponseBytes caps a feed response body. It is generous — the Ubuntu OSV
+// export is ~791 MiB — but prevents unbounded memory use from a misbehaving or
 // malicious server.
-const maxResponseBytes = 512 << 20 // 512 MiB
+const maxResponseBytes = 1 << 30 // 1 GiB
 
 // Client fetches vulnerability feed documents over HTTP with a mandatory
 // timeout, a User-Agent, and simple rate-limit courtesy between requests.
