@@ -30,6 +30,10 @@ type Config struct {
 	// OSVEcosystem names the OSV export to download (e.g. "Debian").
 	OSVEcosystem string
 
+	// OnFeedError, if set, is called when a feed fails; Run then skips that
+	// feed and continues. When nil, the first feed failure aborts Run.
+	OnFeedError func(feed string, err error)
+
 	CollectPackages func() ([]inventory.Package, error)
 }
 
@@ -80,35 +84,35 @@ func Run(ctx context.Context, cfg Config) ([]cvmcore.Decision, error) {
 
 	var vulns []cvmcore.Vuln
 
-	raw, err := cfg.FetchKEV(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("fetch KEV: %w", err)
+	// runFeed fetches and parses one feed, appending its vulns. When
+	// OnFeedError is set a failure is reported and skipped; otherwise it
+	// aborts the run.
+	runFeed := func(name string, fetchFn func(context.Context) ([]byte, error), parseFn func([]byte) ([]cvmcore.Vuln, error)) error {
+		raw, err := fetchFn(ctx)
+		if err == nil {
+			var parsed []cvmcore.Vuln
+			if parsed, err = parseFn(raw); err == nil {
+				vulns = append(vulns, parsed...)
+				return nil
+			}
+		}
+		if cfg.OnFeedError != nil {
+			cfg.OnFeedError(name, err)
+			return nil
+		}
+		return fmt.Errorf("%s: %w", name, err)
 	}
-	kev, err := cfg.ParseKEV(raw)
-	if err != nil {
-		return nil, fmt.Errorf("parse KEV: %w", err)
-	}
-	vulns = append(vulns, kev...)
 
-	raw, err = cfg.FetchNVD(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("fetch NVD: %w", err)
+	if err := runFeed("KEV", cfg.FetchKEV, cfg.ParseKEV); err != nil {
+		return nil, err
 	}
-	nvd, err := cfg.ParseNVD(raw)
-	if err != nil {
-		return nil, fmt.Errorf("parse NVD: %w", err)
+	if err := runFeed("NVD", cfg.FetchNVD, cfg.ParseNVD); err != nil {
+		return nil, err
 	}
-	vulns = append(vulns, nvd...)
-
-	raw, err = cfg.FetchOSVExport(ctx, cfg.OSVEcosystem)
-	if err != nil {
-		return nil, fmt.Errorf("fetch OSV export: %w", err)
+	fetchOSV := func(ctx context.Context) ([]byte, error) { return cfg.FetchOSVExport(ctx, cfg.OSVEcosystem) }
+	if err := runFeed("OSV", fetchOSV, cfg.ParseOSVExport); err != nil {
+		return nil, err
 	}
-	osv, err := cfg.ParseOSVExport(raw)
-	if err != nil {
-		return nil, fmt.Errorf("parse OSV export: %w", err)
-	}
-	vulns = append(vulns, osv...)
 
 	normalized := normalize.Normalize(vulns)
 	return triage.Triage(match.Match(normalized, pkgs)), nil

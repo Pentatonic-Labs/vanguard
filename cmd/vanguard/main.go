@@ -21,7 +21,11 @@ func main() {
 
 	// scan is the default command: run the reactive CVM loop against the live
 	// feeds (KEV, NVD, OSV export) and report matches, highest score first.
-	cfg := pipeline.Config{}
+	cfg := pipeline.Config{
+		OnFeedError: func(feed string, err error) {
+			fmt.Fprintf(os.Stderr, "vanguard: warning: %s feed skipped: %v\n", feed, err)
+		},
+	}
 	if os.Getenv("NVD_API_KEY") == "" {
 		// Without a key NVD rate-limits immediately; skip it rather than fail.
 		cfg.FetchNVD = func(context.Context) ([]byte, error) { return []byte("{}"), nil }
