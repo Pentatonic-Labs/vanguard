@@ -16,6 +16,9 @@ watch:
 inventory:
 	go run ./cmd/vanguard inventory
 
+fix:
+	go run ./cmd/vanguard fix
+
 ui:
 	go run ./cmd/vanguard ui
 

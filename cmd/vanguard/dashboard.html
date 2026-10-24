@@ -319,13 +319,16 @@ function tableRow(f) {
   const sev = sevOf(f);
   const ref = f.target && f.target.ref;
   const cvss = f.vuln && f.vuln.cvss;
+  const patchRef = f.fix && f.fix.patch_ref;
   const reach = isReach(f), kev = isKev(f), verified = !isCVM(f);
   const status = (kev?'<span class="tag kev">KEV</span>':'')+
     (reach?'<span class="tag reach">reachable</span>':'<span class="tag notreach">not loaded</span>')+
-    (verified?'<span class="tag verified">✓ verified</span>':'');
+    (verified?'<span class="tag verified">✓ verified</span>':'')+
+    (isCVM(f)&&!patchRef?'<span class="tag notreach">watching for patch</span>':'');
   const detail =
     (f.impact?'<div class="kv"><b>What it is:</b> '+esc(f.impact)+'</div>':'')+
     (f.fix&&f.fix.suggestion?'<div class="kv"><b>How to address:</b> '+esc(f.fix.suggestion)+'</div>':'')+
+    (patchRef?'<div class="repro"><code>apt-get install --only-upgrade '+esc(ref)+'='+esc(patchRef)+'</code><button class="rowbtn" onclick="copyText(this.parentElement.querySelector(\'code\').textContent,this)">Copy</button></div>':'')+
     '<div class="repro"><code>'+esc(f.proof&&f.proof.repro||'—')+'</code><button class="rowbtn" onclick="copyText(this.parentElement.querySelector(\'code\').textContent,this)">Copy</button></div>'+
     ((f.proof&&f.proof.evidence||[]).length?'<div class="kv"><b>Evidence:</b> '+esc(f.proof.evidence.join('; '))+'</div>':'')+
     '<div style="display:flex;gap:6px;margin-top:8px">'+

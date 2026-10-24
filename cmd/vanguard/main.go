@@ -36,6 +36,9 @@ func main() {
 		case "ui":
 			runUI(os.Args[2:])
 			return
+		case "fix":
+			runFix(os.Args[2:])
+			return
 		}
 	}
 	runScan()
@@ -148,7 +151,7 @@ func writeCVMFindings(proposals []remediate.Proposal) {
 				Evidence:         evidence,
 			},
 			Impact: p.Summary,
-			Fix:    &findings.Fix{Suggestion: fixText},
+			Fix:    &findings.Fix{Suggestion: fixText, PatchRef: p.Fixed},
 		})
 	}
 	if err := findings.Save(findings.DefaultDataDir, "cvm", list); err != nil {
