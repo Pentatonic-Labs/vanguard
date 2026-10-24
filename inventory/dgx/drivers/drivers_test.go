@@ -38,6 +38,24 @@ func TestParseProcDriverVersion(t *testing.T) {
 	}
 }
 
+func TestParseProcDriverVersionOpenKernel(t *testing.T) {
+	// Real output from an RTX PRO 6000 Blackwell host (Open Kernel Module).
+	// This is the format the classic regex silently misparsed as version "for".
+	const openFixture = `NVRM version: NVIDIA UNIX Open Kernel Module for x86_64  610.57.04  Release Build  (dvs-builder@U22-I3-AF05-32-1)  Wed Jul 29 02:45:17 UTC 2026
+GCC version:  gcc version 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04.1)
+`
+	info, err := ParseProcDriverVersion(openFixture)
+	if err != nil {
+		t.Fatalf("ParseProcDriverVersion: %v", err)
+	}
+	if info.Version != "610.57.04" {
+		t.Errorf("Version = %q, want 610.57.04", info.Version)
+	}
+	if info.Arch != "x86_64" {
+		t.Errorf("Arch = %q, want x86_64", info.Arch)
+	}
+}
+
 func TestParseProcDriverVersionNoArch(t *testing.T) {
 	info, err := ParseProcDriverVersion("NVRM version: Kernel Module  550.54.14\n")
 	if err != nil {

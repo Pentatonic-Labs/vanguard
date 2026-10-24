@@ -25,8 +25,13 @@ type DriverInfo struct {
 }
 
 var (
-	nvrmLineRE     = regexp.MustCompile(`NVRM version:\s*NVIDIA UNIX\s+(\S+)\s+Kernel Module\s+(\S+)`)
-	nvrmLineBareRE = regexp.MustCompile(`NVRM version:.*Kernel Module\s+(\S+)`)
+	// nvrmVersionRE extracts the dotted NVIDIA driver version from an NVRM
+	// line. It matches the classic ("... x86_64 Kernel Module  560.35.03"),
+	// the open-kernel ("... Open Kernel Module for x86_64  610.57.04"), and
+	// bare ("Kernel Module  550.54.14") forms.
+	nvrmVersionRE = regexp.MustCompile(`(\d+\.\d+(?:\.\d+)?)`)
+	// nvrmArchRE extracts the architecture token when the line reports one.
+	nvrmArchRE = regexp.MustCompile(`(x86_64|aarch64)`)
 )
 
 // ParseProcDriverVersion parses the contents of /proc/driver/nvidia/version and
@@ -36,12 +41,18 @@ func ParseProcDriverVersion(contents string) (DriverInfo, error) {
 	sc := bufio.NewScanner(strings.NewReader(contents))
 	for sc.Scan() {
 		line := sc.Text()
-		if m := nvrmLineRE.FindStringSubmatch(line); m != nil {
-			return DriverInfo{Arch: m[1], Version: m[2]}, nil
+		if !strings.Contains(line, "NVRM version:") {
+			continue
 		}
-		if m := nvrmLineBareRE.FindStringSubmatch(line); m != nil {
-			return DriverInfo{Version: m[1]}, nil
+		m := nvrmVersionRE.FindStringSubmatch(line)
+		if m == nil {
+			continue
 		}
+		info := DriverInfo{Version: m[1]}
+		if a := nvrmArchRE.FindStringSubmatch(line); a != nil {
+			info.Arch = a[1]
+		}
+		return info, nil
 	}
 	if err := sc.Err(); err != nil {
 		return DriverInfo{}, fmt.Errorf("drivers: read driver version: %w", err)
