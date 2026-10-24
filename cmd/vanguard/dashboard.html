@@ -1,0 +1,328 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vanguard</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0b0c10;
+    --panel: #14161d;
+    --panel2: #1a1d26;
+    --border: #262a36;
+    --text: #e7e9ee;
+    --muted: #8b8f9c;
+    --accent: #ff5c38;
+    --crit: #ff5d5d;
+    --high: #ff9a5a;
+    --med: #ffd166;
+    --low: #5fdb9f;
+    --info: #9aa0ae;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font: 14px/1.5 -apple-system, "Segoe UI", system-ui, sans-serif; }
+  header {
+    position: sticky; top: 0; z-index: 5;
+    display: flex; align-items: center; gap: 14px;
+    padding: 14px 24px; background: rgba(11,12,16,.85); backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--border);
+  }
+  header .logo { display: flex; align-items: center; gap: 10px; }
+  header .mark { width: 22px; height: 22px; border-radius: 6px; background: linear-gradient(135deg, var(--accent), #ff8a5c); }
+  header h1 { margin: 0; font-size: 17px; font-weight: 650; letter-spacing: .3px; }
+  header .host { color: var(--muted); font-size: 13px; }
+  header .spacer { flex: 1; }
+  header .updated { color: var(--muted); font-size: 12px; }
+  button {
+    background: var(--panel2); color: var(--text); border: 1px solid var(--border);
+    border-radius: 7px; padding: 6px 12px; font-size: 13px; cursor: pointer;
+  }
+  button:hover { border-color: #3a4050; }
+  main { max-width: 1100px; margin: 0 auto; padding: 22px 24px 60px; }
+
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 20px; }
+  .stat { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
+  .stat .n { font-size: 28px; font-weight: 700; line-height: 1; }
+  .stat .l { color: var(--muted); font-size: 12px; margin-top: 6px; text-transform: uppercase; letter-spacing: .6px; }
+  .stat.crit .n { color: var(--crit); } .stat.high .n { color: var(--high); }
+  .stat.reach .n { color: #7cc7ff; } .stat.kev .n { color: #ffd166; }
+  .stat.rt .n { color: var(--low); }
+
+  .tabs { display: flex; gap: 6px; border-bottom: 1px solid var(--border); margin-bottom: 18px; }
+  .tab { background: none; border: none; border-bottom: 2px solid transparent; color: var(--muted);
+    padding: 10px 16px; font-size: 14px; cursor: pointer; border-radius: 0; }
+  .tab.active { color: var(--text); border-bottom-color: var(--accent); }
+  .tab .count { color: var(--muted); font-size: 12px; margin-left: 4px; }
+
+  .dist { display: flex; gap: 10px; margin-bottom: 20px; align-items: stretch; }
+  .dist .bar-col { flex: 1; }
+  .dist .bar-track { background: var(--panel2); border-radius: 6px; height: 12px; overflow: hidden; }
+  .dist .bar-fill { height: 100%; border-radius: 6px; }
+  .dist .bar-label { font-size: 12px; color: var(--muted); margin-top: 6px; display: flex; justify-content: space-between; }
+
+  .toolbar { display: flex; gap: 10px; margin-bottom: 14px; align-items: center; flex-wrap: wrap; }
+  .toolbar input, .toolbar select { background: var(--panel2); border: 1px solid var(--border); color: var(--text);
+    border-radius: 7px; padding: 8px 12px; font-size: 13px; }
+  .toolbar input { flex: 1; min-width: 200px; }
+  .toolbar .hint { color: var(--muted); font-size: 12px; }
+
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; margin-bottom: 12px; overflow: hidden; }
+  .frow { display: flex; gap: 12px; align-items: flex-start; padding: 13px 16px; cursor: pointer; }
+  .frow:hover { background: var(--panel2); }
+  .sev { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; padding: 3px 9px;
+    border-radius: 20px; white-space: nowrap; }
+  .sev.critical { background: #3a1215; color: var(--crit); }
+  .sev.high { background: #38210f; color: var(--high); }
+  .sev.medium { background: #382f0c; color: var(--med); }
+  .sev.low { background: #0f2a1d; color: var(--low); }
+  .sev.info, .sev.unknown { background: #232733; color: var(--info); }
+  .fmain { flex: 1; min-width: 0; }
+  .fsum { font-weight: 600; word-break: break-word; }
+  .fmeta { color: var(--muted); font-size: 12px; margin-top: 3px; display: flex; gap: 10px; flex-wrap: wrap; }
+  .chip { font-size: 11px; padding: 1px 8px; border-radius: 12px; background: var(--panel2); border: 1px solid var(--border); color: var(--muted); white-space: nowrap; }
+  .chip.kev { color: #ffd166; border-color: #4a3f14; background: #2a2410; }
+  .chip.reach { color: #7cc7ff; border-color: #14324a; background: #101f2a; }
+  .chip.verified { color: #5fdb9f; border-color: #14402a; background: #0e2318; }
+  .chev { color: var(--muted); transition: transform .15s; align-self: center; }
+  .fdetail { border-top: 1px solid var(--border); padding: 14px 16px; background: var(--panel2); }
+  .fdetail h4 { margin: 0 0 8px; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; }
+  .repro { display: flex; align-items: center; gap: 8px; background: #0b0c10; border: 1px solid var(--border);
+    border-radius: 7px; padding: 9px 12px; font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12.5px;
+    word-break: break-all; margin-bottom: 10px; }
+  .repro code { flex: 1; white-space: pre-wrap; }
+  .copy { flex-shrink: 0; }
+  .kv { color: var(--muted); font-size: 13px; margin: 5px 0; }
+  .kv b { color: var(--text); font-weight: 500; }
+
+  .inv-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
+  .inv-card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
+  .inv-card .k { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; }
+  .inv-card .v { font-size: 15px; margin-top: 3px; word-break: break-word; }
+  .badge { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 12px; background: var(--panel2); border: 1px solid var(--border); }
+  .badge.on { color: var(--low); border-color: #14402a; }
+  .badge.off { color: var(--muted); }
+  .gpus { margin-top: 14px; }
+  .gpus h3, .panel-title { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; margin: 0 0 10px; }
+  .gpu { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 12px 16px; margin-bottom: 8px; }
+  .gpu .name { font-weight: 600; }
+  .gpu .sub { color: var(--muted); font-size: 12px; margin-top: 3px; font-family: ui-monospace, monospace; }
+  .empty { color: var(--muted); padding: 20px; text-align: center; }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo"><div class="mark"></div><h1>Vanguard</h1></div>
+  <span class="host" id="host">…</span>
+  <div class="spacer"></div>
+  <span class="updated">updated <span id="updated">—</span></span>
+  <button onclick="refresh()">Refresh</button>
+</header>
+<main>
+  <div class="stats" id="stats"></div>
+  <div class="dist" id="dist"></div>
+
+  <div class="tabs">
+    <button class="tab active" data-tab="overview" onclick="setTab('overview')">Overview</button>
+    <button class="tab" data-tab="cvm" onclick="setTab('cvm')">CVM <span class="count" id="cvm-count"></span></button>
+    <button class="tab" data-tab="redteam" onclick="setTab('redteam')">Red-team <span class="count" id="rt-count"></span></button>
+    <button class="tab" data-tab="inventory" onclick="setTab('inventory')">Inventory</button>
+  </div>
+
+  <div id="toolbar" class="toolbar" style="display:none">
+    <input id="search" placeholder="Search findings…" oninput="onSearch(this.value)">
+    <select id="sev" onchange="onSev(this.value)">
+      <option value="all">All severities</option>
+      <option value="critical">Critical</option>
+      <option value="high">High</option>
+      <option value="medium">Medium</option>
+      <option value="low">Low</option>
+      <option value="info">Info</option>
+    </select>
+    <span class="hint" id="result-count"></span>
+  </div>
+
+  <div id="view"></div>
+</main>
+<script>
+let FINDINGS = [], INV = {};
+let currentTab = 'overview', searchTerm = '', sevFilter = 'all';
+const SEV_ORDER = { critical:0, high:1, medium:2, low:3, info:4, unknown:5 };
+const norm = s => (s || '').toLowerCase();
+
+function refresh() {
+  Promise.all([
+    fetch('/api/inventory').then(r => r.json()),
+    fetch('/api/findings').then(r => r.json()),
+  ]).then(([inv, findings]) => {
+    INV = inv || {}; FINDINGS = findings || [];
+    render();
+  }).catch(e => {
+    document.getElementById('view').innerHTML = '<div class="empty">error: ' + e + '</div>';
+  });
+}
+
+function render() {
+  document.getElementById('host').textContent = INV.host || 'unknown host';
+  document.getElementById('updated').textContent = new Date().toLocaleTimeString();
+  renderStats(); renderDist(); renderView();
+  document.getElementById('cvm-count').textContent = '(' + countBy(src => src === 'cvm') + ')';
+  document.getElementById('rt-count').textContent = '(' + countBy(src => src !== 'cvm') + ')';
+}
+
+function countBy(fn) { return FINDINGS.filter(f => fn((f.source || '').toLowerCase())).length; }
+
+function renderStats() {
+  const crit = FINDINGS.filter(f => norm(f.vuln && f.vuln.severity) === 'critical').length;
+  const high = FINDINGS.filter(f => norm(f.vuln && f.vuln.severity) === 'high').length;
+  const reach = FINDINGS.filter(f => norm(f.vuln && f.vuln.reachability) === 'reachable').length;
+  const kev = FINDINGS.filter(f => (f.proof && f.proof.evidence || []).some(e => /kev/i.test(e))).length;
+  const rt = FINDINGS.filter(f => norm(f.source) !== 'cvm').length;
+  const stats = [
+    ['total', 'Total findings', FINDINGS.length],
+    ['crit', 'Critical', crit],
+    ['high', 'High', high],
+    ['reach', 'Reachable', reach],
+    ['kev', 'Actively exploited', kev],
+    ['rt', 'Red-team verified', rt],
+  ];
+  document.getElementById('stats').innerHTML = stats.map(s =>
+    '<div class="stat ' + s[0] + '"><div class="n">' + s[2] + '</div><div class="l">' + s[1] + '</div></div>').join('');
+}
+
+function renderDist() {
+  const sevs = ['critical', 'high', 'medium', 'low', 'info', 'unknown'];
+  const counts = {};
+  sevs.forEach(s => counts[s] = 0);
+  FINDINGS.forEach(f => { const s = norm(f.vuln && f.vuln.severity); if (s in counts) counts[s]++; });
+  const max = Math.max(1, ...sevs.map(s => counts[s]));
+  document.getElementById('dist').innerHTML = sevs.map(s =>
+    '<div class="bar-col"><div class="bar-track"><div class="bar-fill" style="width:' +
+    (counts[s] / max * 100) + '%;background:' + sevColor(s) + '"></div></div>' +
+    '<div class="bar-label"><span>' + s + '</span><b>' + counts[s] + '</b></div></div>').join('');
+}
+
+function sevColor(s) { return ({critical:'#ff5d5d', high:'#ff9a5a', medium:'#ffd166', low:'#5fdb9f', info:'#9aa0ae', unknown:'#9aa0ae'})[s] || '#9aa0ae'; }
+
+function setTab(t) {
+  currentTab = t;
+  document.querySelectorAll('.tab').forEach(x => x.classList.toggle('active', x.dataset.tab === t));
+  document.getElementById('toolbar').style.display = (t === 'cvm' || t === 'redteam') ? 'flex' : 'none';
+  renderView();
+}
+function onSearch(v) { searchTerm = v.toLowerCase(); renderView(); }
+function onSev(v) { sevFilter = v; renderView(); }
+
+function renderView() {
+  const view = document.getElementById('view');
+  if (currentTab === 'inventory') { view.innerHTML = renderInventory(); return; }
+  if (currentTab === 'overview') { view.innerHTML = renderOverview(); return; }
+  view.innerHTML = renderTable();
+}
+
+function renderInventory() {
+  const cards = [
+    ['NVIDIA driver', INV.driver],
+    ['CUDA', INV.cuda], ['cuDNN', INV.cudnn],
+    ['SoC', INV.soc], ['MIG mode', INV.mig_mode],
+    ['NGC images', INV.ngc_images], ['Triton', INV.triton],
+  ].filter(c => c[1] !== '' && c[1] !== undefined && c[1] !== null && c[1] !== 0);
+  const grace = INV.grace ? '<span class="badge on">Grace (GB10)</span>' : '<span class="badge off">x86 / not Grace</span>';
+  const dpu = (INV.dpu_nics || []).length ? '<span class="badge on">DPU/ConnectX: ' + INV.dpu_nics.join(', ') + '</span>' : '<span class="badge off">no DPU</span>';
+  const gpus = (INV.gpus || []).map(g =>
+    '<div class="gpu"><div class="name">' + esc(g.name) + '</div>' +
+    '<div class="sub">VBIOS ' + esc(g.vbios) + ' · driver ' + esc(g.driver) + '</div></div>').join('');
+  const devs = (INV.firmware_deviations || []).map(d => '<div class="gpu" style="border-color:#4a3f14"><div class="name" style="color:#ffd166">⚠ ' + esc(d) + '</div></div>').join('');
+  return '<div class="inv-grid">' + cards.map(c => '<div class="inv-card"><div class="k">' + esc(c[0]) + '</div><div class="v">' + esc(String(c[1])) + '</div></div>').join('') + '</div>' +
+    '<div class="gpus"><h3>GPUs</h3>' + (gpus || '<div class="empty">none detected</div>') + devs + '</div>' +
+    '<div class="gpus"><h3>Platform</h3><div style="display:flex;gap:8px">' + grace + dpu + '</div></div>';
+}
+
+function renderOverview() {
+  const top = sortedBySeverity(FINDINGS).slice(0, 6).map(findingCard).join('');
+  return '<h3 class="panel-title">Top findings</h3>' + (top || '<div class="empty">No findings yet.</div>');
+}
+
+function filtered() {
+  let list = FINDINGS.filter(f => {
+    const src = norm(f.source);
+    if (currentTab === 'cvm' && src !== 'cvm') return false;
+    if (currentTab === 'redteam' && src === 'cvm') return false;
+    if (sevFilter !== 'all' && norm(f.vuln && f.vuln.severity) !== sevFilter) return false;
+    if (searchTerm) {
+      const hay = [f.vuln && f.vuln.summary, f.vuln && f.vuln.cvss, f.target && f.target.ref,
+                   f.fix && f.fix.suggestion, f.impact, f.id].join(' ').toLowerCase();
+      if (!hay.includes(searchTerm)) return false;
+    }
+    return true;
+  });
+  return sortedBySeverity(list);
+}
+
+function sortedBySeverity(list) {
+  return list.slice().sort((a, b) => {
+    const sa = SEV_ORDER[norm(a.vuln && a.vuln.severity)] ?? 9;
+    const sb = SEV_ORDER[norm(b.vuln && b.vuln.severity)] ?? 9;
+    return sa - sb;
+  });
+}
+
+function renderTable() {
+  const list = filtered();
+  document.getElementById('result-count').textContent = list.length + ' finding' + (list.length === 1 ? '' : 's');
+  if (!list.length) return '<div class="empty">No findings match.</div>';
+  return list.map(findingCard).join('');
+}
+
+function findingCard(f) {
+  const id = esc(f.id);
+  const sev = norm(f.vuln && f.vuln.severity) || 'info';
+  const summary = esc((f.vuln && f.vuln.summary) || f.id);
+  const ref = f.target && f.target.ref;
+  const cvss = f.vuln && f.vuln.cvss;
+  const reach = norm(f.vuln && f.vuln.reachability);
+  const kev = (f.proof && f.proof.evidence || []).some(e => /kev/i.test(e));
+  const verified = norm(f.source) !== 'cvm' || (f.proof && f.proof.machine_checkable);
+  let chips = '<span class="chip">' + esc(f.source || 'unknown') + '</span>';
+  if (ref) chips += '<span class="chip">' + esc(ref) + '</span>';
+  if (cvss) chips += '<span class="chip">CVSS ' + esc(String(cvss)) + '</span>';
+  if (reach === 'reachable') chips += '<span class="chip reach">reachable</span>';
+  if (kev) chips += '<span class="chip kev">CISA KEV</span>';
+  if (verified) chips += '<span class="chip verified">✓ verified</span>';
+
+  let detail = '<div class="fdetail"><h4>Repro</h4>' +
+    '<div class="repro"><code>' + esc(f.proof && f.proof.repro || '—') + '</code>' +
+    '<button class="copy" onclick="copyRepro(this)">Copy</button></div>';
+  if (f.impact) detail += '<div class="kv"><b>Impact:</b> ' + esc(f.impact) + '</div>';
+  if (f.fix && f.fix.suggestion) detail += '<div class="kv"><b>Fix:</b> ' + esc(f.fix.suggestion) + '</div>';
+  if (kev) detail += '<div class="kv"><b>⚠ Actively exploited</b> (CISA KEV catalog)</div>';
+  if ((f.proof && f.proof.evidence || []).length) detail += '<div class="kv"><b>Evidence:</b> ' + esc((f.proof.evidence).join('; ')) + '</div>';
+  detail += '</div>';
+
+  return '<div class="card" id="card-' + id + '"><div class="frow" onclick="toggle(\'' + id + '\')">' +
+    '<span class="sev ' + sev + '">' + sev + '</span>' +
+    '<div class="fmain"><div class="fsum">' + summary + '</div><div class="fmeta">' + chips + '</div></div>' +
+    '<span class="chev">▾</span></div>' +
+    '<div class="fdetail" id="detail-' + id + '" style="display:none">' + detail + '</div></div>';
+}
+
+function toggle(id) {
+  const d = document.getElementById('detail-' + id);
+  d.style.display = d.style.display === 'none' ? 'block' : 'none';
+  const chev = document.querySelector('#card-' + id + ' .chev');
+  if (chev) chev.style.transform = d.style.display === 'none' ? 'none' : 'rotate(180deg)';
+}
+
+function copyRepro(btn) {
+  const code = btn.parentElement.querySelector('code').textContent;
+  navigator.clipboard.writeText(code).then(() => { btn.textContent = 'Copied'; setTimeout(() => btn.textContent = 'Copy', 1200); });
+}
+
+function esc(s) { return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+refresh();
+setInterval(refresh, 15000);
+</script>
+</body>
+</html>

@@ -113,6 +113,18 @@ func runInventory() {
 func writeCVMFindings(proposals []remediate.Proposal) {
 	list := make([]findings.Finding, 0, len(proposals))
 	for _, p := range proposals {
+		reach := "not-reachable"
+		if p.Reachable {
+			reach = "reachable"
+		}
+		var evidence []string
+		if p.InKEV {
+			evidence = append(evidence, "actively exploited (CISA KEV)")
+		}
+		cvss := ""
+		if p.CVSS > 0 {
+			cvss = fmt.Sprintf("%.1f", p.CVSS)
+		}
 		list = append(list, findings.Finding{
 			SchemaVersion: "1.0",
 			ID:            "cvm-" + p.VulnID,
@@ -120,13 +132,16 @@ func writeCVMFindings(proposals []remediate.Proposal) {
 			Source:        "cvm",
 			Target:        findings.Target{Kind: "infra", Ref: p.Package},
 			Vuln: findings.Vuln{
-				CWE:      []string{},
-				Summary:  p.VulnID + " in " + p.Package,
-				Severity: p.Severity,
+				CWE:          []string{},
+				Summary:      p.VulnID + " in " + p.Package,
+				Severity:     p.Severity,
+				CVSS:         cvss,
+				Reachability: reach,
 			},
 			Proof: findings.Proof{
 				Repro:            "OSV/KEV feed match: " + p.VulnID,
 				MachineCheckable: true,
+				Evidence:         evidence,
 			},
 			Impact: p.Summary,
 			Fix:    &findings.Fix{Suggestion: p.Explain()},
