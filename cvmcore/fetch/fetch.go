@@ -9,7 +9,9 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -131,6 +133,7 @@ func (c *Client) FetchNVDRecent(ctx context.Context, since time.Time) ([]byte, e
 	if pageSize <= 0 {
 		pageSize = 2000
 	}
+	apiKey := os.Getenv("NVD_API_KEY")
 	var all []json.RawMessage
 	for start := 0; ; start += pageSize {
 		q := url.Values{}
@@ -138,7 +141,10 @@ func (c *Client) FetchNVDRecent(ctx context.Context, since time.Time) ([]byte, e
 		q.Set("lastModEndDate", time.Now().UTC().Format("2006-01-02T15:04:05.000-07:00"))
 		q.Set("resultsPerPage", strconv.Itoa(pageSize))
 		q.Set("startIndex", strconv.Itoa(start))
-		body, err := c.get(ctx, c.NVDURL+"?"+q.Encode())
+		if apiKey != "" {
+			q.Set("apiKey", apiKey)
+		}
+		body, err := c.retryGET(ctx, c.NVDURL+"?"+q.Encode())
 		if err != nil {
 			return nil, err
 		}
@@ -160,6 +166,32 @@ func (c *Client) FetchNVDRecent(ctx context.Context, since time.Time) ([]byte, e
 		return nil, err
 	}
 	return out, nil
+}
+
+// retryGET performs a GET, retrying on HTTP 429 (rate limiting) with
+// exponential backoff, honoring ctx.
+func (c *Client) retryGET(ctx context.Context, url string) ([]byte, error) {
+	const maxRetries = 3
+	var lastErr error
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		body, err := c.get(ctx, url)
+		if err == nil {
+			return body, nil
+		}
+		if !strings.Contains(err.Error(), "429") {
+			return nil, err
+		}
+		lastErr = err
+		if attempt < maxRetries {
+			delay := time.Duration(1<<attempt) * 2 * time.Second
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(delay):
+			}
+		}
+	}
+	return nil, lastErr
 }
 
 // postJSON performs a POST with a JSON body and returns the response body.

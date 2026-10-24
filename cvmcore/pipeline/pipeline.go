@@ -5,6 +5,7 @@ package pipeline
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/Pentatonic-Labs/vanguard/cvmcore"
@@ -60,6 +61,23 @@ func (c Config) withDefaults() Config {
 	return out
 }
 
+// osvPurl converts an inventory purl into the form the OSV query API expects:
+// a distro namespace is added and the version (with any epoch) is stripped.
+// OSV's keyed query returns every vuln for the package, which Match then filters
+// by version range.
+func osvPurl(p string) string {
+	if rest, ok := strings.CutPrefix(p, "pkg:deb/"); ok {
+		if i := strings.IndexByte(rest, '@'); i >= 0 {
+			rest = rest[:i]
+		}
+		return "pkg:deb/debian/" + rest
+	}
+	if i := strings.IndexByte(p, '@'); i >= 0 {
+		return p[:i]
+	}
+	return p
+}
+
 // Run executes the reactive loop and returns triage decisions, highest score
 // first. Every step runs through the configured (or default) functions, so the
 // whole pipeline is testable offline.
@@ -72,9 +90,15 @@ func Run(ctx context.Context, cfg Config) ([]cvmcore.Decision, error) {
 		return nil, fmt.Errorf("collect inventory: %w", err)
 	}
 	purls := make([]string, 0, len(pkgs))
+	seenPurl := make(map[string]bool)
 	for _, p := range pkgs {
-		if p.Purl != "" {
-			purls = append(purls, p.Purl)
+		if p.Purl == "" {
+			continue
+		}
+		q := osvPurl(p.Purl)
+		if !seenPurl[q] {
+			seenPurl[q] = true
+			purls = append(purls, q)
 		}
 	}
 
