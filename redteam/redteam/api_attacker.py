@@ -34,6 +34,7 @@ class APIAttacker:
         timeout: float = 30.0,
         max_rounds: int = 3,
         max_probes_per_round: int = 6,
+        seed_paths: list[str] | None = None,
     ) -> None:
         self._api_key = api_key or os.environ.get("DEEPSEEK_API_KEY", "")
         self._base_url = base_url.rstrip("/")
@@ -41,6 +42,7 @@ class APIAttacker:
         self._timeout = timeout
         self._max_rounds = max_rounds
         self._max_probes_per_round = max_probes_per_round
+        self._seed_paths = list(seed_paths) if seed_paths else []
         # _chat is an injectable seam for tests.
         self._chat: Callable[[str], str] = self._call_llm
 
@@ -59,10 +61,8 @@ class APIAttacker:
         return self._parse_findings(target, analysis)
 
     def _probe(self, target: str) -> list[dict[str, Any]]:
-        return self._execute(
-            target,
-            [{"method": "GET", "path": p} for p in _BASELINE_PATHS],
-        )
+        paths = list(_BASELINE_PATHS) + [p for p in self._seed_paths if p not in _BASELINE_PATHS]
+        return self._execute(target, [{"method": "GET", "path": p} for p in paths])
 
     def _suggest(self, target: str, probes: list[dict[str, Any]]) -> list[dict[str, Any]]:
         prompt = (
