@@ -74,12 +74,17 @@ func purlName(p string) string {
 
 // inRange reports whether version falls inside r, using OSV semantics:
 // version >= Introduced and version < Fixed. An empty Introduced means no lower
-// bound (all versions); an empty Fixed means no upper bound (no fix yet).
+// bound (all versions); an empty Fixed means no upper bound (no fix yet). The
+// comparison is Debian-aware for the "deb" ecosystem.
 func inRange(version string, r cvmcore.VersionRange) bool {
-	if r.Introduced != "" && compareVersion(version, r.Introduced) < 0 {
+	cmp := compareVersion
+	if r.Ecosystem == "deb" {
+		cmp = compareDebianVersion
+	}
+	if r.Introduced != "" && cmp(version, r.Introduced) < 0 {
 		return false
 	}
-	if r.Fixed != "" && compareVersion(version, r.Fixed) >= 0 {
+	if r.Fixed != "" && cmp(version, r.Fixed) >= 0 {
 		return false
 	}
 	return true
