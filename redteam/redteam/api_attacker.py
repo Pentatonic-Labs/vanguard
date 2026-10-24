@@ -17,6 +17,7 @@ from collections.abc import Callable
 from typing import Any
 
 from .finding import Finding, Fix, Proof, Target, Vuln
+from .playbook import playbook_probes
 
 _BASELINE_PATHS = ("/", "/health", "/robots.txt")
 _ALLOWED_METHODS = {"GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD"}
@@ -30,7 +31,7 @@ class APIAttacker:
         *,
         api_key: str = "",
         base_url: str = "https://api.deepseek.com/v1",
-        model: str = "deepseek-chat",
+        model: str = "deepseek-v4-pro",
         timeout: float = 30.0,
         max_rounds: int = 5,
         max_probes_per_round: int = 6,
@@ -62,7 +63,10 @@ class APIAttacker:
 
     def _probe(self, target: str) -> list[dict[str, Any]]:
         paths = list(_BASELINE_PATHS) + [p for p in self._seed_paths if p not in _BASELINE_PATHS]
-        return self._execute(target, [{"method": "GET", "path": p} for p in paths])
+        baseline: list[dict[str, Any]] = [{"method": "GET", "path": p} for p in paths]
+        # Run the deterministic technique playbook in addition to the LLM loop.
+        baseline.extend(playbook_probes(target))
+        return self._execute(target, baseline)
 
     def _suggest(self, target: str, probes: list[dict[str, Any]]) -> list[dict[str, Any]]:
         prompt = (
