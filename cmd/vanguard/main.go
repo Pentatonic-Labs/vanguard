@@ -8,6 +8,7 @@ import (
 
 	"github.com/Pentatonic-Labs/vanguard/cvmcore"
 	"github.com/Pentatonic-Labs/vanguard/cvmcore/pipeline"
+	"github.com/Pentatonic-Labs/vanguard/cvmcore/remediate"
 )
 
 // version is overridden at build time via -ldflags.
@@ -38,19 +39,23 @@ func main() {
 		os.Exit(1)
 	}
 
-	var matches []cvmcore.Decision
+	proposals := remediate.Build(decisions)
+
 	bySource := map[string]int{}
 	for _, d := range decisions {
 		bySource[d.Match.Vuln.Source]++
-		if len(d.Match.Packages) > 0 {
-			matches = append(matches, d)
-		}
 	}
 
 	fmt.Printf("vulns: %d (by source: %v)\n", len(decisions), bySource)
-	fmt.Printf("matches: %d\n\n", len(matches))
-	for _, m := range matches {
-		fmt.Printf("%-30s %-8s %-8s -> %v\n",
-			m.Match.Vuln.ID, m.Match.Vuln.Severity, m.Action, m.Match.Packages)
+	fmt.Printf("proposals: %d\n\n", len(proposals))
+
+	const show = 20
+	for i, p := range proposals {
+		if i >= show {
+			fmt.Printf("… and %d more\n", len(proposals)-show)
+			break
+		}
+		fmt.Println(p.Explain())
+		fmt.Println()
 	}
 }
