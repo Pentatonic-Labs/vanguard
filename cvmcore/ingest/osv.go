@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -208,6 +209,7 @@ func (r osvRecord) toVuln() cvmcore.Vuln {
 			v.Affected = append(v.Affected, cvmcore.VersionRange{
 				Purl:       purl,
 				Ecosystem:  eco,
+				Release:    ecosystemRelease(a.Package.Ecosystem),
 				Introduced: introduced,
 				Fixed:      fixed,
 			})
@@ -279,6 +281,16 @@ func ecosystemBase(ecosystem string) string {
 		return ecosystem[:i]
 	}
 	return ecosystem
+}
+
+// ecosystemReleaseRE matches the numeric release version in an OSV ecosystem
+// name (e.g. "16.04" in "Ubuntu:Pro:16.04:LTS", "12" in "Debian:12").
+var ecosystemReleaseRE = regexp.MustCompile(`[0-9]+(?:\.[0-9]+)*`)
+
+// ecosystemRelease extracts the release version from an OSV ecosystem name
+// (e.g. "Ubuntu:Pro:16.04:LTS" -> "16.04"), or "" when none is present.
+func ecosystemRelease(ecosystem string) string {
+	return ecosystemReleaseRE.FindString(ecosystem)
 }
 
 // purlType maps an OSV ecosystem name to a purl type.

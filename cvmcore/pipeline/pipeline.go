@@ -35,6 +35,10 @@ type Config struct {
 	// to inventory.DetectOSID.
 	DetectOSID func() string
 
+	// DetectOSVersion returns the installed OS release (e.g. "24.04"); defaults
+	// to inventory.DetectOSVersion.
+	DetectOSVersion func() string
+
 	// OnFeedError, if set, is called when a feed fails; Run then skips that
 	// feed and continues. When nil, the first feed failure aborts Run.
 	OnFeedError func(feed string, err error)
@@ -65,6 +69,9 @@ func (c Config) withDefaults() Config {
 	}
 	if out.ParseOSVExport == nil {
 		out.ParseOSVExport = ingest.ParseOSVExport
+	}
+	if out.DetectOSVersion == nil {
+		out.DetectOSVersion = inventory.DetectOSVersion
 	}
 	if out.DetectOSID == nil {
 		out.DetectOSID = inventory.DetectOSID
@@ -124,5 +131,5 @@ func Run(ctx context.Context, cfg Config) ([]cvmcore.Decision, error) {
 	}
 
 	normalized := normalize.Normalize(vulns)
-	return triage.Triage(match.Match(normalized, pkgs)), nil
+	return triage.Triage(match.Match(normalized, pkgs, cfg.DetectOSVersion())), nil
 }

@@ -21,6 +21,22 @@ func DetectOSID() string {
 	return ""
 }
 
+// DetectOSVersion reads /etc/os-release and returns the OS release
+// (VERSION_ID, e.g. "24.04"), or "" if it cannot be determined.
+func DetectOSVersion() string {
+	data, err := os.ReadFile("/etc/os-release")
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if v, ok := strings.CutPrefix(line, "VERSION_ID="); ok {
+			return strings.Trim(v, `"`)
+		}
+	}
+	return ""
+}
+
 // OSVEcosystem maps an OS ID to the OSV.dev ecosystem export name used to
 // fetch that distro's vulnerability data. Matching the distro matters: Debian
 // and Ubuntu version numbers live in different namespaces, so fetching the

@@ -54,9 +54,10 @@ func (p Proposal) Explain() string {
 
 // Build converts triaged decisions into proposals, resolving each matched
 // package's installed version and the fixed version from the vulnerability's
-// affected range. Decisions with no matched package are skipped; matches with
-// no known fixed version still produce a proposal (HasFix is false).
-func Build(decisions []cvmcore.Decision) []Proposal {
+// affected range, preferring the range scoped to release. Decisions with no
+// matched package are skipped; matches with no known fixed version still
+// produce a proposal (HasFix is false).
+func Build(decisions []cvmcore.Decision, release string) []Proposal {
 	var out []Proposal
 	for _, d := range decisions {
 		for _, purl := range d.Match.Packages {
@@ -64,7 +65,7 @@ func Build(decisions []cvmcore.Decision) []Proposal {
 			if name == "" {
 				continue
 			}
-			fixed := fixedFor(d.Match.Vuln, purl)
+			fixed := fixedFor(d.Match.Vuln, purl, release)
 			action := string(d.Action)
 			if fixed == "" {
 				// No fix is known yet: there is nothing to propose, so alert the
@@ -90,8 +91,10 @@ func Build(decisions []cvmcore.Decision) []Proposal {
 }
 
 // fixedFor returns the fixed version for purl from the vuln's affected ranges,
-// or "" if none is known.
-func fixedFor(v cvmcore.Vuln, purl string) string {
+// preferring a range scoped to release, falling back to a release-agnostic
+// range, or "" if none is known.
+func fixedFor(v cvmcore.Vuln, purl, release string) string {
+	var fallback string
 	for _, r := range v.Affected {
 		if r.Fixed == "" {
 			continue
@@ -99,9 +102,14 @@ func fixedFor(v cvmcore.Vuln, purl string) string {
 		if r.Purl != "" && purlName(r.Purl) != purlName(purl) {
 			continue
 		}
-		return r.Fixed
+		if r.Release == release {
+			return r.Fixed
+		}
+		if r.Release == "" && fallback == "" {
+			fallback = r.Fixed
+		}
 	}
-	return ""
+	return fallback
 }
 
 // splitPurl splits a purl like "pkg:deb/openssl@3.0.13" into package name and

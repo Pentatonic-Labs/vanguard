@@ -38,7 +38,7 @@ func TestBuild(t *testing.T) {
 		},
 	}
 
-	proposals := Build(decisions)
+	proposals := Build(decisions, "")
 	if len(proposals) != 2 {
 		t.Fatalf("got %d proposals, want 2", len(proposals))
 	}

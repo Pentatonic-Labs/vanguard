@@ -20,7 +20,7 @@ func TestExactPurlMatch(t *testing.T) {
 		pkg("openssl", "1.1.1", "pkg:deb/openssl@1.1.1", "deb"),
 		pkg("libssl", "3.0.0", "pkg:deb/libssl@3.0.0", "deb"),
 	}
-	got := Match(vulns, pkgs)
+	got := Match(vulns, pkgs, "")
 	want := []string{"pkg:deb/openssl@1.1.1"}
 	if len(got) != 1 || !reflect.DeepEqual(got[0].Packages, want) {
 		t.Fatalf("got %+v, want packages %v", got, want)
@@ -42,7 +42,7 @@ func TestRangeMatch(t *testing.T) {
 		pkg("pkg", "0.9", "pkg:deb/pkg@0.9", "deb"), // before Introduced -> out
 		pkg("pkg", "1.5", "pkg:rpm/pkg@1.5", "rpm"), // wrong ecosystem -> out
 	}
-	got := Match(vulns, pkgs)
+	got := Match(vulns, pkgs, "")
 	want := []string{"pkg:deb/pkg@1.5"}
 	if len(got) != 1 || !reflect.DeepEqual(got[0].Packages, want) {
 		t.Fatalf("got %+v, want packages %v", got, want)
@@ -69,7 +69,7 @@ func TestEmptyIntroducedAndFixed(t *testing.T) {
 		pkg("pkg", "1.5", "pkg:deb/pkg@1.5", "deb"),
 		pkg("pkg", "3.0", "pkg:deb/pkg@3.0", "deb"),
 	}
-	got := Match(vulns, pkgs)
+	got := Match(vulns, pkgs, "")
 	if len(got) != 2 {
 		t.Fatalf("want 2 matches, got %d", len(got))
 	}
@@ -91,7 +91,7 @@ func TestNoMatch(t *testing.T) {
 	pkgs := []inventory.Package{
 		pkg("openssl", "1.1.1", "pkg:deb/openssl@1.1.1", "deb"),
 	}
-	got := Match(vulns, pkgs)
+	got := Match(vulns, pkgs, "")
 	if len(got) != 2 {
 		t.Fatalf("want 2 matches (one per vuln), got %d", len(got))
 	}
@@ -114,7 +114,7 @@ func TestCPEMatch(t *testing.T) {
 		pkg("openssl", "3.0.7", "pkg:deb/openssl@3.0.7", "deb"),
 		pkg("libssl", "1.1.1", "pkg:deb/libssl@1.1.1", "deb"),
 	}
-	got := Match(vulns, pkgs)
+	got := Match(vulns, pkgs, "")
 	if len(got) != 1 {
 		t.Fatalf("want 1 vuln, got %d", len(got))
 	}
@@ -135,7 +135,7 @@ func TestCPENoMatch(t *testing.T) {
 	pkgs := []inventory.Package{
 		pkg("openssl", "3.0.7", "pkg:deb/openssl@3.0.7", "deb"),
 	}
-	got := Match(vulns, pkgs)
+	got := Match(vulns, pkgs, "")
 	if len(got) != 1 || len(got[0].Packages) != 0 {
 		t.Fatalf("want no packages matched, got %+v", got)
 	}
@@ -152,7 +152,7 @@ func TestCPEDedupeWithPurl(t *testing.T) {
 	pkgs := []inventory.Package{
 		pkg("openssl", "3.0.7", "pkg:deb/openssl@3.0.7", "deb"),
 	}
-	got := Match(vulns, pkgs)
+	got := Match(vulns, pkgs, "")
 	if len(got) != 1 || len(got[0].Packages) != 1 {
 		t.Fatalf("want one deduped package, got %+v", got)
 	}
@@ -171,8 +171,29 @@ func TestDedupeAcrossPurlAndRange(t *testing.T) {
 	pkgs := []inventory.Package{
 		pkg("openssl", "1.1.1", "pkg:deb/openssl@1.1.1", "deb"),
 	}
-	got := Match(vulns, pkgs)
+	got := Match(vulns, pkgs, "")
 	if len(got) != 1 || len(got[0].Packages) != 1 {
 		t.Fatalf("want exactly one deduped package, got %+v", got)
+	}
+}
+
+func TestReleaseScoping(t *testing.T) {
+	vulns := []cvmcore.Vuln{
+		{
+			ID: "V6",
+			Affected: []cvmcore.VersionRange{
+				{Ecosystem: "deb", Release: "16.04", Fixed: "2.0"},
+				{Ecosystem: "deb", Release: "24.04", Fixed: "3.0"},
+			},
+		},
+	}
+	pkgs := []inventory.Package{
+		pkg("pkg", "2.5", "pkg:deb/pkg@2.5", "deb"),
+	}
+	if got := Match(vulns, pkgs, "24.04"); len(got[0].Packages) != 1 {
+		t.Errorf("release 24.04: want 1 match (2.5 < 3.0), got %v", got[0].Packages)
+	}
+	if got := Match(vulns, pkgs, "16.04"); len(got[0].Packages) != 0 {
+		t.Errorf("release 16.04: want 0 matches (2.5 >= 2.0), got %v", got[0].Packages)
 	}
 }

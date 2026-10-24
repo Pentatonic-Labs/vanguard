@@ -14,7 +14,10 @@ import (
 // by exact purl or by ecosystem version range. An empty Packages slice means no
 // installed package matches. Reachable is left false (a placeholder for future
 // reachability analysis).
-func Match(vulns []cvmcore.Vuln, pkgs []inventory.Package) []cvmcore.Match {
+// Match returns one Match per vulnerability. release is the installed OS
+// release (e.g. "24.04"); version ranges scoped to a different release are
+// ignored. An empty release applies no release filter.
+func Match(vulns []cvmcore.Vuln, pkgs []inventory.Package, release string) []cvmcore.Match {
 	out := make([]cvmcore.Match, 0, len(vulns))
 	for _, v := range vulns {
 		m := cvmcore.Match{Vuln: v, Reachable: false}
@@ -26,6 +29,9 @@ func Match(vulns []cvmcore.Vuln, pkgs []inventory.Package) []cvmcore.Match {
 			matched := purlIn(p.Purl, v.PURLs)
 			if !matched {
 				for _, r := range v.Affected {
+					if r.Release != "" && release != "" && r.Release != release {
+						continue
+					}
 					if r.Purl != "" && !purlMatches(p.Purl, r.Purl) {
 						continue
 					}

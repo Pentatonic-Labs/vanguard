@@ -21,6 +21,7 @@ type Vuln struct {
 type VersionRange struct {
 	Purl       string // purl of the affected package (empty means "any package")
 	Ecosystem  string // e.g. "deb", "rpm", "python", "npm", "go"
+	Release    string // OS release (e.g. "24.04"); empty means "all releases"
 	Introduced string // empty means "all versions"
 	Fixed      string // empty means "no fix yet"
 }

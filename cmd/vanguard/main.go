@@ -9,6 +9,7 @@ import (
 	"github.com/Pentatonic-Labs/vanguard/cvmcore"
 	"github.com/Pentatonic-Labs/vanguard/cvmcore/pipeline"
 	"github.com/Pentatonic-Labs/vanguard/cvmcore/remediate"
+	"github.com/Pentatonic-Labs/vanguard/inventory"
 )
 
 // version is overridden at build time via -ldflags.
@@ -39,7 +40,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	proposals := remediate.Build(decisions)
+	proposals := remediate.Build(decisions, inventory.DetectOSVersion())
 
 	bySource := map[string]int{}
 	for _, d := range decisions {
