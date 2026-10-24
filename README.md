@@ -83,6 +83,17 @@ The agent's `submit_finding` tool re-runs the repro through the proof gate and r
 anything that doesn't hold, so it keeps hunting until it has a *proven* repro or its
 step budget is spent.
 
+To see the full loop against a live (intentionally-vulnerable) target that ships with
+this repo:
+
+```sh
+cd redteam
+python3 demo/demo_target.py 3456 &
+DEEPSEEK_API_KEY=... uv run python demo/run_attack.py http://localhost:3456
+```
+
+See [`redteam/demo/`](redteam/demo/) for the target's flaws and the dogfood run.
+
 - Requires Python 3.10+ and [uv](https://docs.astral.sh/uv/).
 - `DEEPSEEK_API_KEY` (or any OpenAI-compatible endpoint via `APIAttacker(base_url=..., model=...)`).
 - The attacker's toolset is bounded: HTTP to the target only, no shell, no filesystem.
