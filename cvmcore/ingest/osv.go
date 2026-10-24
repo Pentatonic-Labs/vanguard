@@ -1,8 +1,11 @@
 package ingest
 
 import (
+	"archive/zip"
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math"
 	"strconv"
 	"strings"
@@ -95,6 +98,36 @@ func ParseOSVQueryBatch(data []byte) ([]cvmcore.Vuln, error) {
 	return vulns, nil
 }
 
+// ParseOSVExport parses an OSV ecosystem export (a ZIP of per-vulnerability
+// JSON files) into canonical vulnerabilities.
+func ParseOSVExport(zipData []byte) ([]cvmcore.Vuln, error) {
+	zr, err := zip.NewReader(bytes.NewReader(zipData), int64(len(zipData)))
+	if err != nil {
+		return nil, fmt.Errorf("open OSV export: %w", err)
+	}
+	var vulns []cvmcore.Vuln
+	for _, f := range zr.File {
+		if f.FileInfo().IsDir() {
+			continue
+		}
+		rc, err := f.Open()
+		if err != nil {
+			continue
+		}
+		data, err := io.ReadAll(rc)
+		rc.Close()
+		if err != nil {
+			continue
+		}
+		var rec osvRecord
+		if err := json.Unmarshal(data, &rec); err != nil || rec.ID == "" {
+			continue
+		}
+		vulns = append(vulns, rec.toVuln())
+	}
+	return vulns, nil
+}
+
 // ParseOSV parses either a single OSV record or a batch document
 // ({"vulns":[...]}) into canonical vulnerabilities.
 func ParseOSV(data []byte) ([]cvmcore.Vuln, error) {
@@ -138,8 +171,9 @@ func (r osvRecord) toVuln() cvmcore.Vuln {
 	}
 	seen := make(map[string]bool)
 	for _, a := range r.Affected {
+		purl := ""
 		if a.Package.Name != "" && a.Package.Ecosystem != "" {
-			purl := "pkg:" + purlType(a.Package.Ecosystem) + "/" + a.Package.Name
+			purl = "pkg:" + purlType(a.Package.Ecosystem) + "/" + a.Package.Name
 			if !seen[purl] {
 				seen[purl] = true
 				v.PURLs = append(v.PURLs, purl)
@@ -158,6 +192,7 @@ func (r osvRecord) toVuln() cvmcore.Vuln {
 				}
 			}
 			v.Affected = append(v.Affected, cvmcore.VersionRange{
+				Purl:       purl,
 				Ecosystem:  eco,
 				Introduced: introduced,
 				Fixed:      fixed,

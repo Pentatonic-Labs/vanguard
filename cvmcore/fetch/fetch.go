@@ -83,6 +83,17 @@ func (c *Client) FetchNVD(ctx context.Context) ([]byte, error) {
 	return c.get(ctx, c.NVDURL)
 }
 
+// OSVExportBaseURL is the base URL for OSV.dev ecosystem vulnerability exports.
+const OSVExportBaseURL = "https://osv-vulnerabilities.storage.googleapis.com"
+
+// FetchOSVExport downloads the full OSV vulnerability export for an ecosystem
+// (e.g. "Debian") as a ZIP of per-vulnerability JSON files. The querybatch API
+// returns only id/modified stubs, so the export is how full records with
+// affected version ranges are obtained.
+func (c *Client) FetchOSVExport(ctx context.Context, ecosystem string) ([]byte, error) {
+	return c.get(ctx, OSVExportBaseURL+"/"+ecosystem+"/all.zip")
+}
+
 // maxQueryBatch is the largest number of purls sent per OSV querybatch request.
 const maxQueryBatch = 1000
 

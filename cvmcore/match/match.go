@@ -26,6 +26,9 @@ func Match(vulns []cvmcore.Vuln, pkgs []inventory.Package) []cvmcore.Match {
 			matched := purlIn(p.Purl, v.PURLs)
 			if !matched {
 				for _, r := range v.Affected {
+					if r.Purl != "" && !purlMatches(p.Purl, r.Purl) {
+						continue
+					}
 					if p.Ecosystem == r.Ecosystem && inRange(p.Version, r) {
 						matched = true
 						break
@@ -53,6 +56,20 @@ func purlIn(purl string, purls []string) bool {
 		}
 	}
 	return false
+}
+
+// purlMatches reports whether two purls refer to the same package, ignoring
+// version and qualifiers.
+func purlMatches(a, b string) bool {
+	return purlName(a) == purlName(b)
+}
+
+// purlName strips the version and qualifier suffix from a purl.
+func purlName(p string) string {
+	if i := strings.IndexAny(p, "@?"); i >= 0 {
+		return p[:i]
+	}
+	return p
 }
 
 // inRange reports whether version falls inside r, using OSV semantics:

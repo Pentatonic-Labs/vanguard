@@ -18,7 +18,19 @@ func TestRunEndToEnd(t *testing.T) {
 	cfg := Config{
 		FetchKEV: func(ctx context.Context) ([]byte, error) { return []byte(kevFixture), nil },
 		FetchNVD: func(ctx context.Context) ([]byte, error) { return []byte(nvdFixture), nil },
-		QueryOSV: func(ctx context.Context, purls []string) ([]byte, error) { return []byte(osvFixture), nil },
+		FetchOSVExport: func(ctx context.Context, ecosystem string) ([]byte, error) {
+			return []byte("fake-zip"), nil
+		},
+		ParseOSVExport: func(data []byte) ([]cvmcore.Vuln, error) {
+			return []cvmcore.Vuln{{
+				ID:       "GHSA-0000-0000-0000",
+				Source:   "osv",
+				Severity: "critical",
+				CVSS:     9.8,
+				PURLs:    []string{"pkg:deb/testpkg"},
+				Affected: []cvmcore.VersionRange{{Ecosystem: "deb", Fixed: "2.0"}},
+			}}, nil
+		},
 		CollectPackages: func() ([]inventory.Package, error) {
 			return []inventory.Package{
 				{Name: "testpkg", Version: "1.0", Purl: "pkg:deb/testpkg", Ecosystem: "deb"},

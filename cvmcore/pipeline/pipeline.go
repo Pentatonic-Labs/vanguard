@@ -5,7 +5,6 @@ package pipeline
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/Pentatonic-Labs/vanguard/cvmcore"
@@ -20,13 +19,16 @@ import (
 // Config configures a pipeline run. Zero-valued fields fall back to production
 // defaults, so tests can override only what they need.
 type Config struct {
-	FetchKEV func(ctx context.Context) ([]byte, error)
-	FetchNVD func(ctx context.Context) ([]byte, error)
-	QueryOSV func(ctx context.Context, purls []string) ([]byte, error)
+	FetchKEV       func(ctx context.Context) ([]byte, error)
+	FetchNVD       func(ctx context.Context) ([]byte, error)
+	FetchOSVExport func(ctx context.Context, ecosystem string) ([]byte, error)
 
-	ParseKEV           func(data []byte) ([]cvmcore.Vuln, error)
-	ParseNVD           func(data []byte) ([]cvmcore.Vuln, error)
-	ParseOSVQueryBatch func(data []byte) ([]cvmcore.Vuln, error)
+	ParseKEV       func(data []byte) ([]cvmcore.Vuln, error)
+	ParseNVD       func(data []byte) ([]cvmcore.Vuln, error)
+	ParseOSVExport func(data []byte) ([]cvmcore.Vuln, error)
+
+	// OSVEcosystem names the OSV export to download (e.g. "Debian").
+	OSVEcosystem string
 
 	CollectPackages func() ([]inventory.Package, error)
 }
@@ -43,8 +45,8 @@ func (c Config) withDefaults() Config {
 			return fc.FetchNVDRecent(ctx, time.Now().Add(-30*24*time.Hour))
 		}
 	}
-	if out.QueryOSV == nil {
-		out.QueryOSV = fc.QueryBatch
+	if out.FetchOSVExport == nil {
+		out.FetchOSVExport = fc.FetchOSVExport
 	}
 	if out.ParseKEV == nil {
 		out.ParseKEV = ingest.ParseKEV
@@ -52,30 +54,16 @@ func (c Config) withDefaults() Config {
 	if out.ParseNVD == nil {
 		out.ParseNVD = ingest.ParseNVD
 	}
-	if out.ParseOSVQueryBatch == nil {
-		out.ParseOSVQueryBatch = ingest.ParseOSVQueryBatch
+	if out.ParseOSVExport == nil {
+		out.ParseOSVExport = ingest.ParseOSVExport
+	}
+	if out.OSVEcosystem == "" {
+		out.OSVEcosystem = "Debian"
 	}
 	if out.CollectPackages == nil {
 		out.CollectPackages = inventory.CollectOSPackages
 	}
 	return out
-}
-
-// osvPurl converts an inventory purl into the form the OSV query API expects:
-// a distro namespace is added and the version (with any epoch) is stripped.
-// OSV's keyed query returns every vuln for the package, which Match then filters
-// by version range.
-func osvPurl(p string) string {
-	if rest, ok := strings.CutPrefix(p, "pkg:deb/"); ok {
-		if i := strings.IndexByte(rest, '@'); i >= 0 {
-			rest = rest[:i]
-		}
-		return "pkg:deb/debian/" + rest
-	}
-	if i := strings.IndexByte(p, '@'); i >= 0 {
-		return p[:i]
-	}
-	return p
 }
 
 // Run executes the reactive loop and returns triage decisions, highest score
@@ -84,22 +72,10 @@ func osvPurl(p string) string {
 func Run(ctx context.Context, cfg Config) ([]cvmcore.Decision, error) {
 	cfg = cfg.withDefaults()
 
-	// Collect inventory first so OSV can be queried for the installed purls.
+	// Collect inventory first so it is available for matching.
 	pkgs, err := cfg.CollectPackages()
 	if err != nil {
 		return nil, fmt.Errorf("collect inventory: %w", err)
-	}
-	purls := make([]string, 0, len(pkgs))
-	seenPurl := make(map[string]bool)
-	for _, p := range pkgs {
-		if p.Purl == "" {
-			continue
-		}
-		q := osvPurl(p.Purl)
-		if !seenPurl[q] {
-			seenPurl[q] = true
-			purls = append(purls, q)
-		}
 	}
 
 	var vulns []cvmcore.Vuln
@@ -124,17 +100,15 @@ func Run(ctx context.Context, cfg Config) ([]cvmcore.Decision, error) {
 	}
 	vulns = append(vulns, nvd...)
 
-	if len(purls) > 0 {
-		raw, err := cfg.QueryOSV(ctx, purls)
-		if err != nil {
-			return nil, fmt.Errorf("query OSV: %w", err)
-		}
-		osv, err := cfg.ParseOSVQueryBatch(raw)
-		if err != nil {
-			return nil, fmt.Errorf("parse OSV: %w", err)
-		}
-		vulns = append(vulns, osv...)
+	raw, err = cfg.FetchOSVExport(ctx, cfg.OSVEcosystem)
+	if err != nil {
+		return nil, fmt.Errorf("fetch OSV export: %w", err)
 	}
+	osv, err := cfg.ParseOSVExport(raw)
+	if err != nil {
+		return nil, fmt.Errorf("parse OSV export: %w", err)
+	}
+	vulns = append(vulns, osv...)
 
 	normalized := normalize.Normalize(vulns)
 	return triage.Triage(match.Match(normalized, pkgs)), nil

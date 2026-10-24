@@ -19,6 +19,7 @@ type Vuln struct {
 // VersionRange is an ecosystem-specific affected range using OSV semantics:
 // a package is vulnerable if its version is >= Introduced and < Fixed.
 type VersionRange struct {
+	Purl       string // purl of the affected package (empty means "any package")
 	Ecosystem  string // e.g. "deb", "rpm", "python", "npm", "go"
 	Introduced string // empty means "all versions"
 	Fixed      string // empty means "no fix yet"
