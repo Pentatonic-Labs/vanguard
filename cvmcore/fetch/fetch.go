@@ -45,6 +45,9 @@ type Client struct {
 	// MinDelay is the minimum gap between requests. Zero disables the delay.
 	MinDelay time.Duration
 
+	// cacheDir, when non-empty, enables on-disk caching of large downloads.
+	cacheDir string
+
 	httpClient *http.Client
 	userAgent  string
 
@@ -96,7 +99,7 @@ const OSVExportBaseURL = "https://osv-vulnerabilities.storage.googleapis.com"
 // returns only id/modified stubs, so the export is how full records with
 // affected version ranges are obtained.
 func (c *Client) FetchOSVExport(ctx context.Context, ecosystem string) ([]byte, error) {
-	return c.get(ctx, OSVExportBaseURL+"/"+ecosystem+"/all.zip")
+	return c.getCached(ctx, OSVExportBaseURL+"/"+ecosystem+"/all.zip")
 }
 
 // maxQueryBatch is the largest number of purls sent per OSV querybatch request.

@@ -49,7 +49,7 @@ type Config struct {
 // withDefaults fills unset fields with production defaults.
 func (c Config) withDefaults() Config {
 	out := c
-	fc := fetch.NewClient(5 * time.Minute) // the Ubuntu OSV export is ~791 MiB
+	fc := fetch.NewClient(5*time.Minute, fetch.WithCacheDir(fetch.DefaultCacheDir()))
 	if out.FetchKEV == nil {
 		out.FetchKEV = fc.FetchKEV
 	}

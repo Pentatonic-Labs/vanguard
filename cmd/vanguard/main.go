@@ -16,13 +16,21 @@ import (
 var version = "0.1.0-dev"
 
 func main() {
-	if len(os.Args) > 1 && os.Args[1] == "version" {
-		fmt.Printf("vanguard %s\n", version)
-		return
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "version":
+			fmt.Printf("vanguard %s\n", version)
+			return
+		case "watch":
+			runWatch(os.Args[2:])
+			return
+		}
 	}
+	runScan()
+}
 
-	// scan is the default command: run the reactive CVM loop against the live
-	// feeds (KEV, NVD, OSV export) and report matches, highest score first.
+// scanConfig builds the pipeline configuration shared by scan and watch.
+func scanConfig() pipeline.Config {
 	cfg := pipeline.Config{
 		OnFeedError: func(feed string, err error) {
 			fmt.Fprintf(os.Stderr, "vanguard: warning: %s feed skipped: %v\n", feed, err)
@@ -33,20 +41,23 @@ func main() {
 		cfg.FetchNVD = func(context.Context) ([]byte, error) { return []byte("{}"), nil }
 		cfg.ParseNVD = func([]byte) ([]cvmcore.Vuln, error) { return nil, nil }
 	}
+	return cfg
+}
 
-	decisions, err := pipeline.Run(context.Background(), cfg)
+// runScan runs the reactive CVM loop once and prints proposals, highest score
+// first.
+func runScan() {
+	decisions, err := pipeline.Run(context.Background(), scanConfig())
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "vanguard:", err)
 		os.Exit(1)
 	}
-
 	proposals := remediate.Build(decisions, inventory.DetectOSVersion())
 
 	bySource := map[string]int{}
 	for _, d := range decisions {
 		bySource[d.Match.Vuln.Source]++
 	}
-
 	fmt.Printf("vulns: %d (by source: %v)\n", len(decisions), bySource)
 	fmt.Printf("proposals: %d\n\n", len(proposals))
 
