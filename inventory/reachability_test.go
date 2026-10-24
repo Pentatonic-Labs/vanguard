@@ -24,6 +24,25 @@ func TestIsNumeric(t *testing.T) {
 	}
 }
 
+func TestParseSourceField(t *testing.T) {
+	cases := []struct {
+		line, pkg, src string
+		ok             bool
+	}{
+		{"openssl\t\n", "openssl", "openssl", true}, // empty source -> itself
+		{"libssl3t64\topenssl\n", "libssl3t64", "openssl", true},
+		{"libssl3t64\topenssl (3.0.13-1)\n", "libssl3t64", "openssl", true}, // version stripped
+		{"garbage", "", "", false},
+		{"\t\n", "", "", false},
+	}
+	for _, c := range cases {
+		pkg, src, ok := parseSourceField(c.line)
+		if pkg != c.pkg || src != c.src || ok != c.ok {
+			t.Errorf("parseSourceField(%q) = (%q, %q, %v), want (%q, %q, %v)", c.line, pkg, src, ok, c.pkg, c.src, c.ok)
+		}
+	}
+}
+
 // TestPackagesInUseRuns is a smoke test: it must not panic and must return a
 // non-nil map on this (Linux) host. The exact contents are environment-
 // dependent and are not asserted.

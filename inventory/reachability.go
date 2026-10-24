@@ -7,23 +7,65 @@ import (
 	"strings"
 )
 
-// PackagesInUse returns the set of package names that own at least one shared
-// library currently mapped by a running process. It is a Linux-only runtime
-// reachability heuristic: a package whose libraries are not loaded by any live
-// process is treated as not currently reachable. It returns an empty map when
-// the data is unavailable (non-Linux, no dpkg, or permission errors).
+// PackagesInUse returns the set of SOURCE package names that own at least one
+// shared library currently mapped by a running process. Binary packages are
+// mapped back to their source package (e.g. "libssl3t64" -> "openssl") so the
+// result aligns with OSV's source-package identifiers. Linux only.
 func PackagesInUse() map[string]bool {
 	mapped, err := mappedLibraries()
 	if err != nil {
 		return map[string]bool{}
 	}
+	src := sourcePackages()
 	inUse := make(map[string]bool)
 	for path := range mapped {
 		if pkg := owningPackage(path); pkg != "" {
-			inUse[pkg] = true
+			name := pkg
+			if s, ok := src[pkg]; ok {
+				name = s
+			}
+			inUse[name] = true
 		}
 	}
 	return inUse
+}
+
+// sourcePackages returns a map from binary package name to source package name,
+// from dpkg-query.
+func sourcePackages() map[string]string {
+	out, err := exec.Command("dpkg-query", "-W", "-f=${Package}\t${Source}\n").Output()
+	if err != nil {
+		return nil
+	}
+	m := make(map[string]string)
+	for _, line := range strings.Split(string(out), "\n") {
+		if pkg, src, ok := parseSourceField(line); ok {
+			m[pkg] = src
+		}
+	}
+	return m
+}
+
+// parseSourceField parses a dpkg-query line "pkg\tSource" into (binary, source)
+// package names, stripping any version suffix and treating an empty source as
+// equal to the binary package name.
+func parseSourceField(line string) (pkg, src string, ok bool) {
+	fields := strings.SplitN(line, "\t", 2)
+	if len(fields) != 2 {
+		return "", "", false
+	}
+	pkg = strings.TrimSpace(fields[0])
+	src = strings.TrimSpace(fields[1])
+	if pkg == "" {
+		return "", "", false
+	}
+	if src == "" {
+		src = pkg
+	}
+	if i := strings.IndexAny(src, " ("); i >= 0 {
+		src = src[:i]
+	}
+	return pkg, src, true
 }
 
 // mappedLibraries returns the set of shared-library paths (".so") mapped by any
