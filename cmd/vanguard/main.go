@@ -11,6 +11,10 @@ import (
 	"github.com/Pentatonic-Labs/vanguard/cvmcore/pipeline"
 	"github.com/Pentatonic-Labs/vanguard/cvmcore/remediate"
 	"github.com/Pentatonic-Labs/vanguard/inventory"
+	"github.com/Pentatonic-Labs/vanguard/inventory/dgx/drivers"
+	"github.com/Pentatonic-Labs/vanguard/inventory/dgx/firmware"
+	"github.com/Pentatonic-Labs/vanguard/inventory/dgx/ngc"
+	"github.com/Pentatonic-Labs/vanguard/inventory/dgx/platform"
 )
 
 // version is overridden at build time via -ldflags.
@@ -24,6 +28,9 @@ func main() {
 			return
 		case "watch":
 			runWatch(os.Args[2:])
+			return
+		case "inventory":
+			runInventory()
 			return
 		}
 	}
@@ -44,6 +51,57 @@ func scanConfig() pipeline.Config {
 		cfg.ParseNVD = func([]byte) ([]cvmcore.Vuln, error) { return nil, nil }
 	}
 	return cfg
+}
+
+// runInventory prints the NVIDIA/DGX/GB10 hardware and software inventory.
+// It is safe on non-DGX hosts: missing hardware is reported as zero values.
+func runInventory() {
+	fmt.Println("=== Vanguard hardware inventory ===")
+
+	if report, err := drivers.Detect(); err == nil {
+		fmt.Printf("NVIDIA driver : %s (%s)\n", report.Driver.Version, report.Driver.Source)
+		if report.CUDA.Toolkit != "" || report.CUDA.Runtime != "" {
+			fmt.Printf("CUDA          : toolkit %s, runtime %s\n", report.CUDA.Toolkit, report.CUDA.Runtime)
+		}
+		if report.CuDNN.Version != "" {
+			fmt.Printf("cuDNN         : %s (%s)\n", report.CuDNN.Version, report.CuDNN.Source)
+		}
+		if report.Mismatch {
+			fmt.Printf("! CUDA mismatch: %s\n", report.MismatchDetail)
+		}
+	} else {
+		fmt.Printf("drivers       : (none detected)\n")
+	}
+
+	if infos, err := firmware.Collect(context.Background()); err == nil {
+		for _, f := range infos {
+			fmt.Printf("GPU           : %s (VBIOS %s, driver %s)\n", f.GPUName, f.VBIOSVersion, f.DriverVersion)
+		}
+		for _, d := range firmware.CheckBaseline(infos) {
+			fmt.Printf("! firmware deviation: %s %s: have %q want %q\n", d.GPUName, d.Field, d.Have, d.Want)
+		}
+	}
+
+	if images, err := ngc.Collect(); err == nil && len(images) > 0 {
+		fmt.Printf("NGC images    : %d\n", len(images))
+		for _, im := range images {
+			fmt.Printf("  %s:%s\n", im.Name, im.Tag)
+		}
+	}
+	if tv, err := ngc.DetectTritonVersion(); err == nil && tv != "" {
+		fmt.Printf("Triton server : %s\n", tv)
+	}
+
+	p := platform.Collect()
+	if p.SoCModel != "" {
+		fmt.Printf("SoC           : %s (Grace=%v)\n", p.SoCModel, p.IsGrace)
+	}
+	if p.MIGMode != "" {
+		fmt.Printf("MIG mode      : %s\n", p.MIGMode)
+	}
+	if p.HasDPU {
+		fmt.Printf("DPU (ConnectX): %v\n", p.NICs)
+	}
 }
 
 // runScan runs the reactive CVM loop once and prints proposals, highest score

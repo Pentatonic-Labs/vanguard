@@ -45,6 +45,20 @@ Or poll continuously and report only *new* findings:
 go run ./cmd/vanguard watch -interval 1h
 ```
 
+Or inventory the NVIDIA/DGX/GB10 hardware on this box (driver, CUDA, cuDNN, GPU
+firmware/VBIOS, NGC images, Grace CPU, MIG, DPU):
+
+```sh
+go run ./cmd/vanguard inventory
+```
+
+To run **both loops at once** — the reactive scan + hardware inventory, then the
+frontier-model red-team against the in-repo demo target — use the dogfood command:
+
+```sh
+make dogfood   # needs DEEPSEEK_API_KEY for the red-team leg
+```
+
 Requires Go 1.22+. The first run downloads the OSV export (~800 MB); after that it is
 cached (and the parsed result is cached too).
 
