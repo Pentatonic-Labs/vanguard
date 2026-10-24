@@ -1,6 +1,6 @@
-# Redoubt — Architecture (working draft)
+# Vanguard — Architecture
 
-> Working name is a placeholder. Status: draft v0.1, pre-code.
+> Status: draft v0.1, pre-code. Project: **Pentatonic Vanguard**.
 > Scope agreed: narrow wedge (DGX/NVIDIA fleet + autonomous red-team), broadened later via recipes.
 > Boundary agreed: three-layer open/closed (see §8).
 
@@ -264,17 +264,25 @@ fixer with `auto-fix` limited to dependency/image bumps.
 
 ---
 
-## 11. Open questions
+## 11. Decisions & open questions
 
-1. **License**: Apache-2.0 (max adoption) vs AGPL-3.0 (prevents closed SaaS capture).
-   Recommend Apache-2.0 given the "wide adoption" goal — flag for decision.
-2. **Finding schema**: standalone schema with OSV/SARIF/CycloneDX interop (recommended)
-   vs extending SARIF directly.
-3. **Target authorization strength**: the "prove you own it" check is spoofable in open
-   source. Accept it as a speed bump (recommended for v1) or invest in stronger attestation?
-4. **Publish the sandbox spec as a standalone standard** ("Red Team Sandbox Spec")? It may
-   be the single highest-leverage contribution — a neutral, adoptable spec.
-5. **Name** (placeholder "Redoubt").
+**Resolved (2026-10-24):**
+
+- **Name**: Vanguard — published as "Pentatonic Vanguard" under the `Pentatonic-Labs`
+  GitHub org (kept separate from the commercial `Pentatonic-Ltd` org).
+- **License**: Apache-2.0.
+- **Finding schema**: standalone, with OSV/SARIF/CycloneDX interop.
+- **Target authorization**: attestation gate from day one — a signed inventory claim, not
+  a self-asserted string; hardened further post-v1.
+- **Publish the sandbox spec as a standalone standard**: yes ("Red Team Sandbox Spec").
+- **Stack**: Go (`cvm-core`/`inventory`/`fixer`), Python (`redteam` harness), Postgres.
+- **Scheduling**: reactive CVM is CPU-only and always-on; red-team runs are GPU-bursty,
+  triggered on merge/deploy plus a nightly sweep (§6).
+
+**Still open:**
+
+1. Repo slug under the org (defaulted to `vanguard`; trivially renamable).
+2. CI/deploy credential model: GitHub App vs scoped PAT (flag only — not blocking v1).
 
 ---
 
