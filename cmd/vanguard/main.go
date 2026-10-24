@@ -125,6 +125,10 @@ func writeCVMFindings(proposals []remediate.Proposal) {
 		if p.CVSS > 0 {
 			cvss = fmt.Sprintf("%.1f", p.CVSS)
 		}
+		fixText := "No fixed version known yet — monitor for a patch and apply mitigations."
+		if p.Fixed != "" {
+			fixText = fmt.Sprintf("Upgrade %s from %s to %s (or later).", p.Package, p.Installed, p.Fixed)
+		}
 		list = append(list, findings.Finding{
 			SchemaVersion: "1.0",
 			ID:            "cvm-" + p.VulnID,
@@ -144,7 +148,7 @@ func writeCVMFindings(proposals []remediate.Proposal) {
 				Evidence:         evidence,
 			},
 			Impact: p.Summary,
-			Fix:    &findings.Fix{Suggestion: p.Explain()},
+			Fix:    &findings.Fix{Suggestion: fixText},
 		})
 	}
 	if err := findings.Save(findings.DefaultDataDir, "cvm", list); err != nil {

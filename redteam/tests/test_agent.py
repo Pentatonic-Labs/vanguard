@@ -41,6 +41,7 @@ def test_submit_finding_is_recorded_when_repro_verifies():
                     "cwe": ["CWE-200"],
                     "repro": "curl -s http://target/admin",
                     "impact": "exposes the admin surface",
+                    "fix": "Restrict /admin with authentication and authorization checks.",
                 },
             },
             {"tool": "done", "args": {}},
@@ -52,6 +53,7 @@ def test_submit_finding_is_recorded_when_repro_verifies():
 
     assert len(findings) == 1
     assert findings[0].vuln.summary == "admin panel reachable"
+    assert findings[0].fix.suggestion == "Restrict /admin with authentication and authorization checks."
 
 
 def test_unverified_finding_is_rejected_and_loop_continues():

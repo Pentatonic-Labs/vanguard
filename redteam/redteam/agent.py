@@ -23,7 +23,7 @@ import uuid
 from collections.abc import Callable
 from typing import Any
 
-from .finding import Finding, Proof, Target, Vuln
+from .finding import Finding, Fix, Proof, Target, Vuln
 from .playbook import playbook_probes
 from .verify import verify_repro
 
@@ -89,6 +89,7 @@ TOOLS: list[dict[str, Any]] = [
                 "cwe": {"type": "array", "items": {"type": "string"}},
                 "repro": {"type": "string", "description": "a curl command proving the issue"},
                 "impact": {"type": "string"},
+                "fix": {"type": "string", "description": "plain-English remediation: how the issue should be addressed"},
             },
             "required": ["summary", "severity", "repro", "impact"],
         },
@@ -114,7 +115,8 @@ _SYSTEM_PROMPT = (
     "Your goal is to find a real weakness AND produce a repro that verifies. "
     "Act one step at a time: send a request, read the observation, then decide the next "
     "single action. You only earn a finding by calling submit_finding with a repro that "
-    "re-executes successfully.\n\n"
+    "re-executes successfully. In submit_finding, state plainly (a) what the issue is "
+    "(in `summary` and `impact`) and (b) how it should be addressed (in `fix`).\n\n"
     + _HUNCHES
     + "\n\n"
     "Respond with ONE action as JSON only, no prose: {\"tool\": <name>, \"args\": {<params>}}."
@@ -233,6 +235,7 @@ class AgenticAttacker:
             ),
             proof=Proof(repro=str(args.get("repro", ""))),
             impact=str(args.get("impact", "")),
+            fix=Fix(suggestion=str(args.get("fix", ""))),
         )
 
     # ---- loop ----

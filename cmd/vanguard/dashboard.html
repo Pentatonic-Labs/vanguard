@@ -324,9 +324,9 @@ function tableRow(f) {
     (reach?'<span class="tag reach">reachable</span>':'<span class="tag notreach">not loaded</span>')+
     (verified?'<span class="tag verified">✓ verified</span>':'');
   const detail =
+    (f.impact?'<div class="kv"><b>What it is:</b> '+esc(f.impact)+'</div>':'')+
+    (f.fix&&f.fix.suggestion?'<div class="kv"><b>How to address:</b> '+esc(f.fix.suggestion)+'</div>':'')+
     '<div class="repro"><code>'+esc(f.proof&&f.proof.repro||'—')+'</code><button class="rowbtn" onclick="copyText(this.parentElement.querySelector(\'code\').textContent,this)">Copy</button></div>'+
-    (f.impact?'<div class="kv"><b>Impact:</b> '+esc(f.impact)+'</div>':'')+
-    (f.fix&&f.fix.suggestion?'<div class="kv"><b>Fix:</b> '+esc(f.fix.suggestion)+'</div>':'')+
     ((f.proof&&f.proof.evidence||[]).length?'<div class="kv"><b>Evidence:</b> '+esc(f.proof.evidence.join('; '))+'</div>':'')+
     '<div style="display:flex;gap:6px;margin-top:8px">'+
     '<button class="rowbtn" onclick="copyById(\''+id+'\',\'repro\')">Copy repro</button>'+
