@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vanguard — Pentatonic Labs</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Funnel+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&family=Newsreader:opsz,wght@6..72,300;6..72,400&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink: #171717;
+    --paper: #faf7f2;
+    --muted: #5c5c5c;
+    --lab: #cc3a00;
+    --lab-on-dark: #ff4c00;
+    --physical: #007f55;
+    --physical-fill: #00fba9;
+    --seesa: #455196;
+    --rule: #17171724;
+    --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+    --serif: "Newsreader Variable", "Newsreader", Georgia, "Times New Roman", serif;
+    --sans: "Funnel Sans", system-ui, -apple-system, sans-serif;
+    --pad: clamp(20px, 4vw, 56px);
+    --max: 1320px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--paper); color: var(--ink);
+    font-family: var(--sans); font-weight: 400; line-height: 1.55;
+    font-size: 17px; -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: var(--max); margin: 0 auto; padding: 0 var(--pad); }
+  .measure { max-width: 64ch; }
+
+  /* masthead */
+  .masthead { border-bottom: 1px solid var(--rule); padding: 28px 0; }
+  .masthead .row { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
+  .wordmark { font-family: var(--sans); font-weight: 500; letter-spacing: .01em; font-size: 17px; }
+  .wordmark .labs { color: var(--lab); }
+  .eyebrow {
+    font-family: var(--mono); font-size: 12px; letter-spacing: .14em;
+    text-transform: uppercase; color: var(--muted);
+  }
+
+  /* hero */
+  .hero { padding: clamp(48px, 8vw, 112px) 0 clamp(32px, 6vw, 72px); }
+  .hero h1 {
+    font-family: var(--serif); font-weight: 300; letter-spacing: -.015em;
+    font-size: clamp(48px, 8vw, 96px); line-height: 1.02; margin: 16px 0 24px; max-width: 16ch;
+  }
+  .hero .lede { font-size: clamp(19px, 2.2vw, 24px); line-height: 1.45; color: var(--ink); max-width: 42ch; }
+  .lede em { font-style: italic; }
+
+  /* sections */
+  section { padding: clamp(40px, 6vw, 80px) 0; border-top: 1px solid var(--rule); }
+  .kicker {
+    font-family: var(--mono); font-size: 12px; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--lab); margin: 0 0 18px; font-weight: 500;
+  }
+  h2 {
+    font-family: var(--serif); font-weight: 300; letter-spacing: -.01em;
+    font-size: clamp(30px, 3.4vw, 46px); line-height: 1.1; margin: 0 0 24px; max-width: 22ch;
+  }
+  h3 { font-family: var(--serif); font-weight: 400; font-size: 23px; margin: 32px 0 10px; }
+
+  /* loops table */
+  .loops { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--rule); border: 1px solid var(--rule); margin-top: 32px; }
+  .loop { background: var(--paper); padding: 28px; }
+  .loop .name { font-family: var(--mono); font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+  .loop .q { font-family: var(--serif); font-size: 22px; margin: 12px 0 10px; }
+  .loop p { margin: 0; color: var(--ink); font-size: 15px; }
+  @media (max-width: 720px) { .loops { grid-template-columns: 1fr; } }
+
+  /* feature list */
+  .features { list-style: none; margin: 0; padding: 0; counter-reset: f; }
+  .features li {
+    border-top: 1px solid var(--rule); padding: 22px 0; display: grid;
+    grid-template-columns: 56px 1fr; gap: 20px;
+  }
+  .features .n { font-family: var(--mono); font-size: 13px; color: var(--lab); padding-top: 4px; }
+  .features .t { font-family: var(--serif); font-size: 22px; font-weight: 400; margin-bottom: 6px; }
+  .features p { margin: 0; max-width: 60ch; }
+
+  /* code block */
+  pre {
+    background: #171717; color: #faf7f2; border-radius: 10px; padding: 22px 24px;
+    font-family: var(--mono); font-size: 13.5px; line-height: 1.6; overflow-x: auto; margin: 24px 0;
+  }
+  pre .c { color: #8b8b8b; }
+
+  /* result highlight */
+  .result { border-left: 3px solid var(--physical); padding-left: 22px; margin-top: 28px; }
+  .result .stat { font-family: var(--serif); font-size: 34px; font-weight: 300; }
+
+  a { color: var(--lab); text-decoration: none; border-bottom: 1px solid var(--lab); }
+  a:hover { color: var(--ink); border-color: var(--ink); }
+
+  footer { border-top: 1px solid var(--rule); padding: 40px 0 56px; color: var(--muted); font-size: 14px; }
+  footer .row { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+  .mono { font-family: var(--mono); }
+</style>
+</head>
+<body>
+
+<div class="masthead"><div class="wrap row">
+  <div class="wordmark">Pentatonic <span class="labs">Labs</span></div>
+  <div class="eyebrow">Briefing Note</div>
+</div></div>
+
+<div class="hero"><div class="wrap">
+  <div class="kicker">Continuous Vulnerability Management &amp; Autonomous Red-Teaming</div>
+  <h1>Vanguard</h1>
+  <p class="lede">Vanguard finds weaknesses in <em>your own</em> stack before attackers do — and proves them. For NVIDIA DGX / GB10-class systems and the agentic services that run on them.</p>
+</div></div>
+
+<section><div class="wrap">
+  <div class="kicker">The problem</div>
+  <h2>Known vulns are a grind. Unknown ones are invisible.</h2>
+  <p class="measure">Matching CISA&nbsp;KEV, OSV, NVD and vendor feeds against your <em>actual</em> running stack — with correct Debian version ordering, runtime reachability and OS scoping — is slow, manual and error-prone. And nobody is adversarially probing your own agentic services the way an attacker will: patiently, deviously, until something gives.</p>
+  <div class="loops">
+    <div class="loop">
+      <div class="name">Loop 01 · Reactive</div>
+      <div class="q">“Which known vulns are in my stack right now?”</div>
+      <p>Ingest KEV / OSV / NVD / vendor → match against installed packages → triage → propose verified fixes.</p>
+    </div>
+    <div class="loop">
+      <div class="name">Loop 02 · Proactive</div>
+      <div class="q">“What unknown weaknesses can an attacker find — and prove?”</div>
+      <p>A frontier-model agent attacks a faithful replica of your own service until it finds a weakness with a machine-checkable proof.</p>
+    </div>
+  </div>
+</div></section>
+
+<section><div class="wrap">
+  <div class="kicker">Why it's different</div>
+  <h2>An attacker, not a scanner.</h2>
+  <ol class="features">
+    <li><div class="n">01</div><div><div class="t">A frontier-model attacker</div>
+      <p>The red-team agent acts, observes and decides the next step — told to be devious and unrelenting, to enumerate and chain findings the way a real adversary behaves. It is not replaying a wordlist.</p></div></li>
+    <li><div class="n">02</div><div><div class="t">Deterministic proof, not model confidence</div>
+      <p>The harness — not the model — detects compromise and proves it. Every finding re-executes its repro before it's accepted; unverified claims are rejected.</p></div></li>
+    <li><div class="n">03</div><div><div class="t">Semantic proof for agentic attacks</div>
+      <p>Prompt-injection and objective-injection findings are machine-verified by checking the response <em>content</em> — did the agent escalate? leak its instructions? — not just an HTTP status code.</p></div></li>
+    <li><div class="n">04</div><div><div class="t">Hardened by design</div>
+      <p>The attacker's toolset is bounded — HTTP to the target only, no shell, no filesystem, hard step caps — so it can never escape to anything it isn't authorised to touch.</p></div></li>
+  </ol>
+</div></section>
+
+<section><div class="wrap">
+  <div class="kicker">In the wild</div>
+  <h2>It found real issues in our own stack.</h2>
+  <p class="measure">Pointing Vanguard at a faithful replica of Pentatonic's own control plane, the red-team agent machine-proved an <strong>agentic prompt-injection escalation</strong> — carefully-phrased input that slips past the intent guard and becomes the agent's objective — and surfaced a <strong>reproducible worker crash</strong> in the authentication path. Both filed and being fixed.</p>
+  <div class="result">
+    <div class="stat">Two real, non-obvious weaknesses a conventional scanner would never have seen.</div>
+  </div>
+</div></section>
+
+<section><div class="wrap">
+  <div class="kicker">Get started</div>
+  <h2>Clone, scan, attack.</h2>
+<pre><span class="c"># reactive CVM against the machine you're on</span>
+go run ./cmd/vanguard scan
+
+<span class="c"># hardware inventory — driver, CUDA, cuDNN, GPU firmware, NGC, Grace/GB10, DPU</span>
+go run ./cmd/vanguard inventory
+
+<span class="c"># proactive red-team against the in-repo demo target</span>
+make dogfood
+
+<span class="c"># local read-only dashboard</span>
+make ui</pre>
+  <p class="mono" style="font-size:13px; color:var(--muted)">Go 1.22+ · Python 3.10+ · Apache-2.0 · github.com/Pentatonic-Labs/vanguard</p>
+</div></section>
+
+<footer><div class="wrap row">
+  <div>Pentatonic Labs — Vanguard</div>
+  <div><a href="https://pentatonic.com">pentatonic.com</a> · <a href="https://github.com/Pentatonic-Labs/vanguard">github.com/Pentatonic-Labs/vanguard</a></div>
+</div></footer>
+
+</body>
+</html>
