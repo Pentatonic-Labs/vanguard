@@ -1,4 +1,4 @@
-.PHONY: build test scan watch inventory redteam demo dogfood ui
+.PHONY: build test scan watch inventory fix ui posture redteam demo dogfood
 
 build:
 	go build ./...
@@ -21,6 +21,9 @@ fix:
 
 ui:
 	go run ./cmd/vanguard ui
+
+posture:
+	go run ./cmd/vanguard posture
 
 redteam:
 	cd redteam && uv run --extra dev pytest -q

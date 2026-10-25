@@ -39,6 +39,9 @@ func main() {
 		case "fix":
 			runFix(os.Args[2:])
 			return
+		case "posture":
+			runPosture(os.Args[2:])
+			return
 		}
 	}
 	runScan()
