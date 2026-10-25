@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import sys
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -187,8 +188,12 @@ def openai_chat_factory(base_url: str, model: str, api_key: str) -> ChatFn:
             data=body,
             headers={"Content-Type": "application/json", "Authorization": "Bearer " + api_key},
         )
-        with urllib.request.urlopen(req, timeout=120) as r:
-            data = json.loads(r.read())
+        try:
+            with urllib.request.urlopen(req, timeout=300) as r:
+                data = json.loads(r.read())
+        except Exception as exc:  # noqa: BLE001 - a model failure must not crash the run
+            print(f"[agent] model call failed: {exc}", file=sys.stderr)
+            return json.dumps({"tool": "done", "args": {}})
         return data["choices"][0]["message"]["content"]
 
     return chat
