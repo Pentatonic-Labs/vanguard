@@ -24,6 +24,7 @@
     --pad: clamp(20px, 4vw, 56px);
     --max: 1320px;
   }
+  @page { size: A4; margin: 0; }
   * { box-sizing: border-box; }
   body {
     margin: 0; background: var(--paper); color: var(--ink);
@@ -34,22 +35,24 @@
   .measure { max-width: 64ch; }
 
   /* masthead */
-  .masthead { border-bottom: 1px solid var(--rule); padding: 28px 0; }
+  .masthead { border-bottom: 1px solid #ffffff24; padding: 28px 0; background: #171717; color: #faf7f2; }
   .masthead .row { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
   .wordmark { font-family: var(--sans); font-weight: 500; letter-spacing: .01em; font-size: 17px; }
-  .wordmark .labs { color: var(--lab); }
+  .wordmark .labs { color: var(--lab-on-dark); }
   .eyebrow {
     font-family: var(--mono); font-size: 12px; letter-spacing: .14em;
-    text-transform: uppercase; color: var(--muted);
+    text-transform: uppercase; color: #ffffffa8;
   }
 
   /* hero */
-  .hero { padding: clamp(48px, 8vw, 112px) 0 clamp(32px, 6vw, 72px); }
+  .hero { padding: clamp(48px, 8vw, 112px) 0 clamp(32px, 6vw, 72px); background: #171717; color: #faf7f2; }
+  .hero .kicker { color: var(--lab-on-dark); }
   .hero h1 {
     font-family: var(--serif); font-weight: 300; letter-spacing: -.015em;
     font-size: clamp(48px, 8vw, 96px); line-height: 1.02; margin: 16px 0 24px; max-width: 16ch;
+    color: #faf7f2;
   }
-  .hero .lede { font-size: clamp(19px, 2.2vw, 24px); line-height: 1.45; color: var(--ink); max-width: 42ch; }
+  .hero .lede { font-size: clamp(19px, 2.2vw, 24px); line-height: 1.45; color: #faf7f2; max-width: 42ch; }
   .lede em { font-style: italic; }
 
   /* sections */
@@ -96,8 +99,9 @@
   a { color: var(--lab); text-decoration: none; border-bottom: 1px solid var(--lab); }
   a:hover { color: var(--ink); border-color: var(--ink); }
 
-  footer { border-top: 1px solid var(--rule); padding: 40px 0 56px; color: var(--muted); font-size: 14px; }
+  footer { border-top: 1px solid #ffffff24; padding: 40px 0 56px; color: #ffffffa8; font-size: 14px; background: #171717; }
   footer .row { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+  footer a { color: var(--lab-on-dark); border-color: var(--lab-on-dark); }
   .mono { font-family: var(--mono); }
 </style>
 </head>
