@@ -2,10 +2,12 @@ import json
 
 from redteam.playbook import (
     idor,
+    info_leak,
     jwt_none,
     mass_assignment,
     playbook_probes,
     prompt_injection,
+    sqli,
     ssrf,
     traversal,
 )
@@ -21,7 +23,9 @@ def test_idor_enumerates_ids():
     assert "/agents/1" in _paths(probes)
     assert "/users/2" in _paths(probes)
     assert "/accounts/3" in _paths(probes)
-    assert len(probes) == 9
+    assert "/api/users/1" in _paths(probes)
+    assert "/object/1" in _paths(probes)
+    assert len(probes) == 16
 
 
 def test_jwt_none_sends_alg_none_token():
@@ -63,6 +67,19 @@ def test_prompt_injection_has_payloads():
     assert any("system prompt" in p["body"] for p in probes)
 
 
+def test_info_leak_probes_dotfiles():
+    probes = info_leak("http://t")
+    assert any("/.env" in p["path"] for p in probes)
+    assert any("/.git/HEAD" in p["path"] for p in probes)
+    assert all(p["method"] == "GET" for p in probes)
+
+
+def test_sqli_probes_query_params():
+    probes = sqli("http://t")
+    assert all(p["method"] == "GET" for p in probes)
+    assert all("id=" in p["path"] for p in probes)
+
+
 def test_playbook_probes_merges_all():
     probes = playbook_probes("http://t")
     expected = (
@@ -72,5 +89,7 @@ def test_playbook_probes_merges_all():
         + len(traversal("http://t"))
         + len(mass_assignment("http://t"))
         + len(prompt_injection("http://t"))
+        + len(info_leak("http://t"))
+        + len(sqli("http://t"))
     )
     assert len(probes) == expected

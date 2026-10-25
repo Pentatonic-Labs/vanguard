@@ -103,20 +103,41 @@ TOOLS: list[dict[str, Any]] = [
 
 # Hunch list fed to the model so it is not limited to what it happens to recall.
 _HUNCHES = (
-    "Technique hunches to probe: IDOR (predictable /users/<n>, /api/me, /object/<id>); "
-    "JWT alg=none (POST a token with alg:none and an empty signature); SSRF (url/callback/"
-    "next/redirect params pointing at internal hosts); path traversal (/../../etc/passwd); "
-    "mass assignment (POST extra fields like role=admin, is_admin=true); prompt injection "
-    "(send a user message that tells an agent to ignore its instructions)."
+    "Techniques to hunt with (try ALL of them, then improvise beyond them):\n"
+    "- IDOR / broken object-level auth: enumerate predictable ids (/users/1..n, /api/me, "
+    "/object/1, /accounts/1) and look for PII or cross-tenant data.\n"
+    "- Auth bypass: JWT alg=none or alg=HS256 with an empty/weak secret; missing auth on "
+    "admin endpoints; role forging (role=admin, is_admin=true, permissions=all).\n"
+    "- SSRF: url/callback/next/redirect/uri/webhook/dest params pointed at 127.0.0.1, "
+    "169.254.169.254, or internal hostnames.\n"
+    "- Path traversal & LFI: ../..//etc/passwd, ..%2f, %2e%2e/, absolute /etc/passwd, "
+    "double-encoding, null bytes.\n"
+    "- Mass assignment: inject privilege fields into POST/PUT/PATCH bodies.\n"
+    "- Injection: SQLi (' OR 1=1--, ' UNION SELECT), command injection (; id, | whoami, "
+    "$(whoami)), template injection ({{7*7}}, ${7*7}).\n"
+    "- Header abuse: X-Forwarded-For, X-Original-URL, X-Rewrite-URL, Host header override.\n"
+    "- Prompt injection against the target's own agent (ignore instructions, reveal system prompt).\n"
+    "- Info leak: /.env, /config, /debug, /.git/HEAD, /actuator, /swagger, /api-docs, "
+    "verbose error messages, stack traces.\n"
+    "Revisit 404s with different encodings, methods (POST/PUT/PATCH/OPTIONS/HEAD), and headers "
+    "before giving up. Chain discoveries: a leaked id enables an IDOR; an IDOR yields PII; "
+    "PII enables takeover."
 )
 
 _SYSTEM_PROMPT = (
-    "You are a red-team security agent probing a target you are AUTHORIZED to test. "
-    "Your goal is to find a real weakness AND produce a repro that verifies. "
-    "Act one step at a time: send a request, read the observation, then decide the next "
-    "single action. You only earn a finding by calling submit_finding with a repro that "
-    "re-executes successfully. In submit_finding, state plainly (a) what the issue is "
-    "(in `summary` and `impact`) and (b) how it should be addressed (in `fix`).\n\n"
+    "You are an adversarial penetration-testing agent. You are simulating a sophisticated, "
+    "motivated attacker who is devious, persistent, and does NOT give up: assume the defenders "
+    "made mistakes and hunt for them relentlessly.\n\n"
+    "The target is a replica you are AUTHORIZED to attack (never production). Within that "
+    "authorization, be as devious as a real attacker:\n"
+    "- Enumerate aggressively: guess ids, paths, parameters, roles, and verbs.\n"
+    "- Chain findings into bigger findings.\n"
+    "- Revisit failures with different encodings, methods, and headers before giving up.\n"
+    "- Do not be polite or timid. Do not stop at the first finding — keep hunting.\n\n"
+    "You only earn a finding by calling submit_finding with a repro that RE-EXECUTES "
+    "successfully; unverified claims are rejected, so craft each repro carefully. In "
+    "submit_finding, state plainly (a) what the issue is (`summary`, `impact`) and (b) how "
+    "to address it (`fix`).\n\n"
     + _HUNCHES
     + "\n\n"
     "Respond with ONE action as JSON only, no prose: {\"tool\": <name>, \"args\": {<params>}}."
@@ -133,6 +154,22 @@ def _extract_json_object(text: str) -> dict[str, Any] | None:
         return obj if isinstance(obj, dict) else None
     except json.JSONDecodeError:
         return None
+
+
+def _default_api_key() -> str:
+    """Resolve the model API key: env vars first, then the local OrcaRouter key file,
+    then DEEPSEEK_API_KEY."""
+    for src in (os.environ.get("VANGUARD_API_KEY"), os.environ.get("ORCAROUTER_API_KEY")):
+        if src:
+            return src
+    try:
+        with open(os.path.expanduser("~/.config/orca/api_key")) as f:
+            v = f.read().strip()
+        if v:
+            return v
+    except OSError:
+        pass
+    return os.environ.get("DEEPSEEK_API_KEY", "")
 
 
 def openai_chat_factory(base_url: str, model: str, api_key: str) -> ChatFn:
@@ -166,12 +203,14 @@ class AgenticAttacker:
         max_steps: int = 30,
         timeout: float = 10.0,
         api_key: str | None = None,
-        base_url: str = "https://api.deepseek.com/v1",
-        model: str = "deepseek-v4-pro",
+        base_url: str | None = None,
+        model: str | None = None,
     ):
         self._target = target.rstrip("/")
         if chat is None:
-            key = api_key or os.environ.get("DEEPSEEK_API_KEY", "")
+            base_url = base_url or os.environ.get("VANGUARD_BASE_URL", "https://api.orcarouter.ai/v1")
+            model = model or os.environ.get("VANGUARD_MODEL", "orca/orcacyber-flash-1.0")
+            key = api_key or _default_api_key()
             chat = openai_chat_factory(base_url, model, key)
         self._chat = chat
         self._http = http or _bounded_http

@@ -116,8 +116,15 @@ DEEPSEEK_API_KEY=... uv run python demo/run_attack.py http://localhost:3456
 See [`redteam/demo/`](redteam/demo/) for the target's flaws and the dogfood run.
 
 - Requires Python 3.10+ and [uv](https://docs.astral.sh/uv/).
-- `DEEPSEEK_API_KEY` (or any OpenAI-compatible endpoint via `APIAttacker(base_url=..., model=...)`).
-- The attacker's toolset is bounded: HTTP to the target only, no shell, no filesystem.
+- Model is configurable via env: `VANGUARD_MODEL`, `VANGUARD_BASE_URL`, `VANGUARD_API_KEY`.
+  Defaults to OrcaRouter's `orca/orcacyber-flash-1.0` (a DeepSeek V4.1 Flash abliterated
+  model — no safety refusals, so it attacks like a real adversary). Any OpenAI-compatible
+  endpoint works (e.g. set `VANGUARD_BASE_URL=https://api.deepseek.com/v1`,
+  `VANGUARD_MODEL=deepseek-v4-pro`).
+- The attacker's prompt is deliberately adversarial — it is told to be devious and
+  unrelenting, enumerate aggressively, and chain findings — while the *toolset* stays
+  bounded: HTTP to the target only, no shell, no filesystem, and every finding must
+  re-execute its repro before it's accepted.
 
 ## Install
 

@@ -23,6 +23,22 @@ _BASELINE_PATHS = ("/", "/health", "/robots.txt")
 _ALLOWED_METHODS = {"GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD"}
 
 
+def _resolve_api_key() -> str:
+    """Resolve the model API key: env vars first, then the local OrcaRouter key
+    file, then DEEPSEEK_API_KEY."""
+    for src in (os.environ.get("VANGUARD_API_KEY"), os.environ.get("ORCAROUTER_API_KEY")):
+        if src:
+            return src
+    try:
+        with open(os.path.expanduser("~/.config/orca/api_key")) as f:
+            v = f.read().strip()
+        if v:
+            return v
+    except OSError:
+        pass
+    return os.environ.get("DEEPSEEK_API_KEY", "")
+
+
 class APIAttacker:
     """Iteratively probes a target over HTTP and uses an LLM API to find vulnerabilities."""
 
@@ -30,16 +46,16 @@ class APIAttacker:
         self,
         *,
         api_key: str = "",
-        base_url: str = "https://api.deepseek.com/v1",
-        model: str = "deepseek-v4-pro",
+        base_url: str = "",
+        model: str = "",
         timeout: float = 30.0,
         max_rounds: int = 5,
         max_probes_per_round: int = 6,
         seed_paths: list[str] | None = None,
     ) -> None:
-        self._api_key = api_key or os.environ.get("DEEPSEEK_API_KEY", "")
-        self._base_url = base_url.rstrip("/")
-        self._model = model
+        self._api_key = api_key or _resolve_api_key()
+        self._base_url = (base_url or os.environ.get("VANGUARD_BASE_URL", "https://api.orcarouter.ai/v1")).rstrip("/")
+        self._model = model or os.environ.get("VANGUARD_MODEL", "orca/orcacyber-flash-1.0")
         self._timeout = timeout
         self._max_rounds = max_rounds
         self._max_probes_per_round = max_probes_per_round
