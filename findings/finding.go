@@ -32,6 +32,9 @@ type Proof struct {
 	Artifact         string   `json:"artifact,omitempty"`
 	Evidence         []string `json:"evidence,omitempty"`
 	MachineCheckable bool     `json:"machine_checkable"`
+	// Expected is a fragment that a compromised response must contain for
+	// agentic/injection findings (semantic proof), e.g. an escalation verdict.
+	Expected string `json:"expected,omitempty"`
 }
 
 // Fix is a proposed remediation.

@@ -114,6 +114,10 @@
         "machine_checkable": {
           "const": true,
           "description": "MUST be true. A report whose proof cannot be checked by machine is a lead, not a finding."
+        },
+        "expected": {
+          "type": "string",
+          "description": "For agentic/injection findings: a fragment the compromised response must contain (e.g. an escalation verdict or a leaked system prompt)."
         }
       }
     },

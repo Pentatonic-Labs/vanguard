@@ -28,6 +28,7 @@ class Proof:
     machine_checkable: bool = True
     artifact: str = ""
     evidence: list[str] = field(default_factory=list)
+    expected: str = ""
 
 
 @dataclass
@@ -79,6 +80,7 @@ class Finding:
                     "machine_checkable": self.proof.machine_checkable,
                     "artifact": self.proof.artifact,
                     "evidence": self.proof.evidence,
+                    "expected": self.proof.expected,
                 }
             ),
             "impact": self.impact,
@@ -125,6 +127,7 @@ class Finding:
                 machine_checkable=proof.get("machine_checkable", True),
                 artifact=proof.get("artifact", ""),
                 evidence=proof.get("evidence", []),
+                expected=proof.get("expected", ""),
             ),
             impact=data["impact"],
             fix=Fix(

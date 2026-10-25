@@ -90,6 +90,7 @@ TOOLS: list[dict[str, Any]] = [
                 "repro": {"type": "string", "description": "a curl command proving the issue"},
                 "impact": {"type": "string"},
                 "fix": {"type": "string", "description": "plain-English remediation: how the issue should be addressed"},
+                "expected": {"type": "string", "description": "for agentic/injection findings: exact text the compromised response must contain (e.g. an escalation verdict, a leaked prompt)"},
             },
             "required": ["summary", "severity", "repro", "impact"],
         },
@@ -137,7 +138,9 @@ _SYSTEM_PROMPT = (
     "You only earn a finding by calling submit_finding with a repro that RE-EXECUTES "
     "successfully; unverified claims are rejected, so craft each repro carefully. In "
     "submit_finding, state plainly (a) what the issue is (`summary`, `impact`) and (b) how "
-    "to address it (`fix`).\n\n"
+    "to address it (`fix`). For agentic or prompt-injection findings, also set `expected` "
+    "to the exact text a compromised response must contain (an escalation verdict, a "
+    "leaked prompt), so the proof gate can verify it.\n\n"
     + _HUNCHES
     + "\n\n"
     "Respond with ONE action as JSON only, no prose: {\"tool\": <name>, \"args\": {<params>}}."
@@ -206,9 +209,11 @@ class AgenticAttacker:
         base_url: str | None = None,
         model: str | None = None,
         default_headers: dict[str, str] | None = None,
+        seed_probes: list[dict[str, Any]] | None = None,
     ):
         self._target = target.rstrip("/")
         self._default_headers = dict(default_headers or {})
+        self._seed_probes = list(seed_probes or [])
         if chat is None:
             base_url = base_url or os.environ.get("VANGUARD_BASE_URL", "https://api.orcarouter.ai/v1")
             model = model or os.environ.get("VANGUARD_MODEL", "orca/orcacyber-flash-1.0")
@@ -245,8 +250,9 @@ class AgenticAttacker:
         b = urllib.parse.urlparse(url)
         return (b.scheme, b.netloc) == (a.scheme, a.netloc)
 
-    def _status(self, req: dict[str, Any], timeout: float) -> int | None:
-        return self._http(req, timeout).get("status")
+    def _status(self, req: dict[str, Any], timeout: float) -> tuple[int | None, str]:
+        obs = self._http(req, timeout)
+        return obs.get("status"), obs.get("body", "")
 
     # ---- LLM ----
 
@@ -276,7 +282,7 @@ class AgenticAttacker:
                 summary=str(args.get("summary", "")),
                 severity=str(args.get("severity", "info")),
             ),
-            proof=Proof(repro=str(args.get("repro", ""))),
+            proof=Proof(repro=str(args.get("repro", "")), expected=str(args.get("expected", ""))),
             impact=str(args.get("impact", "")),
             fix=Fix(suggestion=str(args.get("fix", ""))),
         )
@@ -300,6 +306,12 @@ class AgenticAttacker:
                     "action": {"tool": "http_request", "args": probe},
                     "observation": self._run_http(probe),
                 }
+            )
+        # Operator-provided route seeds (full request shapes, e.g. a chat
+        # endpoint the attacker must be pointed at before it can explore it).
+        for probe in self._seed_probes:
+            history.append(
+                {"action": {"tool": "http_request", "args": probe}, "observation": self._run_http(probe)}
             )
 
         findings: list[Finding] = []
