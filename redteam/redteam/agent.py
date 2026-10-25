@@ -205,8 +205,10 @@ class AgenticAttacker:
         api_key: str | None = None,
         base_url: str | None = None,
         model: str | None = None,
+        default_headers: dict[str, str] | None = None,
     ):
         self._target = target.rstrip("/")
+        self._default_headers = dict(default_headers or {})
         if chat is None:
             base_url = base_url or os.environ.get("VANGUARD_BASE_URL", "https://api.orcarouter.ai/v1")
             model = model or os.environ.get("VANGUARD_MODEL", "orca/orcacyber-flash-1.0")
@@ -228,10 +230,12 @@ class AgenticAttacker:
         url = urllib.parse.urljoin(self._target + "/", path.lstrip("/"))
         if not self._same_origin(url):
             return {"status": None, "headers": {}, "body": "refused: cross-origin request"}
+        headers = dict(self._default_headers)
+        headers.update(args.get("headers") or {})
         req = {
             "method": method,
             "url": url,
-            "headers": args.get("headers"),
+            "headers": headers or None,
             "body": args.get("body"),
         }
         return self._http(req, self._timeout)

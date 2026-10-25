@@ -88,12 +88,23 @@ def mass_assignment(target: str) -> list[Probe]:
     ]
 
 
+_PROMPT_INJECTION_ENDPOINTS = ("/chat", "/agents", "/api/chat", "/v1/chat/completions")
+_PROMPT_INJECTION_FIELDS = ("text", "message", "prompt")
+
+
 def prompt_injection(target: str) -> list[Probe]:
-    """Prompt-injection payloads aimed at hijacking the target's own agent."""
-    return [
-        {"method": "POST", "path": "/", "body": json.dumps({"message": p})}
-        for p in _PROMPT_INJECTION_PAYLOADS
-    ]
+    """Prompt-injection payloads aimed at hijacking the target's own agent.
+
+    Probes multiple common chat endpoints and body field names, since the exact
+    route and request shape vary by service.
+    """
+    probes: list[Probe] = []
+    for endpoint in _PROMPT_INJECTION_ENDPOINTS:
+        for field in _PROMPT_INJECTION_FIELDS:
+            probes.append(
+                {"method": "POST", "path": endpoint, "body": json.dumps({field: _PROMPT_INJECTION_PAYLOADS[0]})}
+            )
+    return probes
 
 
 def info_leak(target: str) -> list[Probe]:

@@ -62,9 +62,11 @@ def test_mass_assignment_injects_privilege_fields():
 
 def test_prompt_injection_has_payloads():
     probes = prompt_injection("http://t")
-    assert len(probes) == 4
+    assert len(probes) == 12  # 4 endpoints × 3 fields
     assert all(p["method"] == "POST" for p in probes)
     assert any("system prompt" in p["body"] for p in probes)
+    assert any('"text"' in p["body"] for p in probes)
+    assert any("/chat" in p["path"] for p in probes)
 
 
 def test_info_leak_probes_dotfiles():
