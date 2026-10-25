@@ -176,6 +176,33 @@ def _default_api_key() -> str:
     return os.environ.get("DEEPSEEK_API_KEY", "")
 
 
+_DEFAULT_COMPROMISE_MARKERS = (
+    '"verdict":"escalate"',
+    '"verdict": "escalate"',
+    '"status":"escalated"',
+)
+
+
+def detect_compromise(body: str, markers: tuple[str, ...]) -> str | None:
+    """Return the first compromise marker found in a response body, or None."""
+    for marker in markers:
+        if marker in body:
+            return marker
+    return None
+
+
+def curl_from_request(req: dict[str, Any]) -> str:
+    """Reconstruct a curl command from a request dict (method/url/headers/body)."""
+    parts = ["curl", "-s", "-X", str(req.get("method", "GET")).upper()]
+    for k, v in (req.get("headers") or {}).items():
+        parts += ["-H", f'"{k}: {v}"']
+    if req.get("body"):
+        body = str(req["body"]).replace("'", "\\'")
+        parts += ["-d", f"'{body}'"]
+    parts.append(req["url"])
+    return " ".join(parts)
+
+
 def openai_chat_factory(base_url: str, model: str, api_key: str) -> ChatFn:
     """Build a chat function against any OpenAI-compatible /chat/completions endpoint."""
 
@@ -215,10 +242,12 @@ class AgenticAttacker:
         model: str | None = None,
         default_headers: dict[str, str] | None = None,
         seed_probes: list[dict[str, Any]] | None = None,
+        compromise_markers: tuple[str, ...] | None = None,
     ):
         self._target = target.rstrip("/")
         self._default_headers = dict(default_headers or {})
         self._seed_probes = list(seed_probes or [])
+        self._markers = tuple(compromise_markers) if compromise_markers else _DEFAULT_COMPROMISE_MARKERS
         if chat is None:
             base_url = base_url or os.environ.get("VANGUARD_BASE_URL", "https://api.orcarouter.ai/v1")
             model = model or os.environ.get("VANGUARD_MODEL", "orca/orcacyber-flash-1.0")
@@ -233,21 +262,19 @@ class AgenticAttacker:
 
     # ---- HTTP ----
 
-    def _run_http(self, args: dict[str, Any]) -> dict[str, Any]:
-        """Run an http_request tool call. Enforces the target-origin bound."""
+    def _build_req(self, args: dict[str, Any]) -> dict[str, Any]:
         method = str(args.get("method", "GET")).upper()
         path = str(args.get("path", "/"))
         url = urllib.parse.urljoin(self._target + "/", path.lstrip("/"))
-        if not self._same_origin(url):
-            return {"status": None, "headers": {}, "body": "refused: cross-origin request"}
         headers = dict(self._default_headers)
         headers.update(args.get("headers") or {})
-        req = {
-            "method": method,
-            "url": url,
-            "headers": headers or None,
-            "body": args.get("body"),
-        }
+        return {"method": method, "url": url, "headers": headers or None, "body": args.get("body")}
+
+    def _run_http(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Run an http_request tool call. Enforces the target-origin bound."""
+        req = self._build_req(args)
+        if not self._same_origin(req["url"]):
+            return {"status": None, "headers": {}, "body": "refused: cross-origin request"}
         return self._http(req, self._timeout)
 
     def _same_origin(self, url: str) -> bool:
@@ -292,34 +319,67 @@ class AgenticAttacker:
             fix=Fix(suggestion=str(args.get("fix", ""))),
         )
 
+    def _detect_injection(self, probe: dict[str, Any], observation: dict[str, Any]) -> Finding | None:
+        """Deterministically detect a compromise signal in a probe response and
+        turn it into a proven finding (repro re-executed, expected = the signal).
+
+        This is what makes agentic/prompt-injection findings provable without
+        relying on the model to improvise the report: the harness detects the
+        signal and proves it.
+        """
+        marker = detect_compromise(observation.get("body", ""), self._markers)
+        if marker is None:
+            return None
+        req = self._build_req(probe)
+        finding = Finding(
+            schema_version="1.0",
+            id="injection-" + uuid.uuid4().hex[:12],
+            run_id=self._run_id,
+            source="llm-agentic-attacker",
+            target=Target(kind="http", ref=self._target),
+            vuln=Vuln(
+                cwe=["CWE-74"],
+                summary="Prompt injection escalated past the intent guard",
+                severity="high",
+            ),
+            proof=Proof(repro=curl_from_request(req), machine_checkable=True, expected=marker),
+            impact="Injected content became a directive to the agent (escalation), showing untrusted input was not fenced.",
+            fix=Fix(suggestion="Fence untrusted input to the agent; do not let injected content become the objective or trigger escalation."),
+        )
+        ok, _ = verify_repro(finding, executor=self._status)
+        return finding if ok else None
+
     # ---- loop ----
 
     def attack(self) -> list[Finding]:
-        """Act -> observe -> decide -> repeat, gating findings on repro verification."""
-        history: list[dict[str, Any]] = []
+        """Act -> observe -> decide -> repeat, gating findings on repro verification.
 
-        # Seed observations from the baseline and the deterministic playbook.
+        Every probe response is also passed through the deterministic injection
+        detector, so a compromise signal (e.g. an escalation verdict) becomes a
+        proven finding even if the model does not report it itself.
+        """
+        history: list[dict[str, Any]] = []
+        findings: list[Finding] = []
+
+        def observe(probe: dict[str, Any]) -> None:
+            obs = self._run_http(probe)
+            history.append({"action": {"tool": "http_request", "args": probe}, "observation": obs})
+            f = self._detect_injection(probe, obs)
+            if f is not None:
+                findings.append(f)
+
+        # Operator-provided route seeds first: they are the most targeted and
+        # point the attacker at the exact surface (e.g. a chat endpoint) before
+        # the broad baseline/playbook sweep.
+        for probe in self._seed_probes:
+            observe(probe)
+        # Baseline and deterministic playbook.
         paths = _BASELINE_PATHS + [p for p in self._seed_paths if p not in _BASELINE_PATHS]
         for path in paths:
-            req = {"method": "GET", "path": path}
-            history.append(
-                {"action": {"tool": "http_request", "args": req}, "observation": self._run_http(req)}
-            )
+            observe({"method": "GET", "path": path})
         for probe in playbook_probes(self._target):
-            history.append(
-                {
-                    "action": {"tool": "http_request", "args": probe},
-                    "observation": self._run_http(probe),
-                }
-            )
-        # Operator-provided route seeds (full request shapes, e.g. a chat
-        # endpoint the attacker must be pointed at before it can explore it).
-        for probe in self._seed_probes:
-            history.append(
-                {"action": {"tool": "http_request", "args": probe}, "observation": self._run_http(probe)}
-            )
+            observe(probe)
 
-        findings: list[Finding] = []
         for _ in range(self._max_steps):
             action = self._decide(history)
             if not action:
@@ -327,7 +387,7 @@ class AgenticAttacker:
             tool = action.get("tool")
             args = action.get("args") or {}
             if tool == "http_request":
-                history.append({"action": action, "observation": self._run_http(args)})
+                observe(args)
             elif tool == "submit_finding":
                 finding = self._build_finding(args)
                 ok, reason = verify_repro(finding, executor=self._status)

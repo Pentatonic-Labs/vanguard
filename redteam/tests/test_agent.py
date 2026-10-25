@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import urllib.parse
 
-from redteam.agent import AgenticAttacker
+from redteam.agent import AgenticAttacker, curl_from_request, detect_compromise
 
 
 def _make_http(statuses: dict[str, int]):
@@ -103,3 +103,41 @@ def test_cross_origin_request_is_refused():
     obs = attacker._run_http({"method": "GET", "path": "http://evil.com/x"})
 
     assert "refused" in obs["body"]
+
+
+def test_detect_compromise():
+    assert detect_compromise('{"verdict":"escalate"}', ('"verdict":"escalate"',)) == '"verdict":"escalate"'
+    assert detect_compromise('{"verdict":"inline"}', ('"verdict":"escalate"',)) is None
+
+
+def test_curl_from_request():
+    req = {
+        "method": "POST",
+        "url": "http://t/chat",
+        "headers": {"Authorization": "Bearer x"},
+        "body": '{"text":"hi"}',
+    }
+    c = curl_from_request(req)
+    assert "curl -s -X POST" in c
+    assert "Authorization: Bearer x" in c
+    assert "http://t/chat" in c
+
+
+def test_injection_detector_produces_finding():
+    def http(req, timeout):
+        if "unique-marker" in (req.get("body") or ""):
+            return {"status": 200, "headers": {}, "body": '{"verdict":"escalate","task":{}}'}
+        return {"status": 404, "headers": {}, "body": ""}
+
+    attacker = AgenticAttacker(
+        "http://target",
+        chat=_scripted({"tool": "done", "args": {}}),
+        http=http,
+        seed_probes=[{"method": "POST", "path": "/chat", "body": '{"text":"unique-marker"}'}],
+    )
+
+    findings = attacker.attack()
+
+    assert len(findings) == 1
+    assert findings[0].proof.expected == '"verdict":"escalate"'
+    assert "curl" in findings[0].proof.repro
