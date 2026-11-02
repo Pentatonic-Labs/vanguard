@@ -30,9 +30,20 @@ func runWatch(args []string) {
 
 	for {
 		start := time.Now()
+		failures := feedFailures.Load()
 		decisions, err := pipeline.Run(context.Background(), scanConfig())
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "vanguard: %v\n", err)
+			time.Sleep(*interval)
+			continue
+		}
+		if lost := feedFailures.Load() - failures; !shouldRecordBaseline(lost) {
+			// Never baseline a partial scan. A host that cannot resolve
+			// osv-vulnerabilities (seen in the field: no DNS) finds nothing, and
+			// recording "0 findings" makes every later cycle agree with it.
+			fmt.Printf("[%s] SCAN INCOMPLETE: %d feed(s) unavailable — baseline NOT updated, findings unknown\n",
+				time.Now().Format(time.RFC3339), lost)
+			fmt.Printf("[%s] next attempt in %s\n", time.Now().Format(time.RFC3339), interval.String())
 			time.Sleep(*interval)
 			continue
 		}
@@ -78,6 +89,11 @@ func runWatch(args []string) {
 		time.Sleep(*interval)
 	}
 }
+
+// shouldRecordBaseline reports whether a scan result may be written as the new
+// baseline. A run that lost a feed must not: it did not look, and "did not look"
+// recorded as "nothing found" is indistinguishable from a clean box.
+func shouldRecordBaseline(feedFailuresLost int64) bool { return feedFailuresLost == 0 }
 
 // diffFixed classifies the transition from a previous scan's fix status (key →
 // fixed version) to the current one. An empty fixed version means "no fix known
