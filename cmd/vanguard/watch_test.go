@@ -7,7 +7,7 @@ import (
 
 func TestDiffFixed(t *testing.T) {
 	prev := map[string]string{
-		"A": "",   // was unfixed
+		"A": "",    // was unfixed
 		"B": "1.0", // was fixed
 		"C": "2.0", // was fixed
 	}
