@@ -235,11 +235,16 @@ func CollectOSPackages() ([]Package, error) {
 		return parseDpkgOutput(bytes.NewReader(out))
 	}
 	if _, err := exec.LookPath("rpm"); err == nil {
-		out, err := exec.Command("rpm", "-qa").Output()
+		// Ask for SOURCERPM: rpm, like dpkg, gives the binary name by default,
+		// and the vulnerability databases index distro packages by SOURCE
+		// (kernel-core is filed under "kernel"). RPM has no per-package source
+		// VERSION, so the source version is parsed out of the source RPM name.
+		out, err := exec.Command("rpm", "-qa",
+			"--qf", "%{NAME}\t%{VERSION}-%{RELEASE}\t%{SOURCERPM}\t%{ARCH}\n").Output()
 		if err != nil {
 			return nil, fmt.Errorf("rpm -qa: %w", err)
 		}
-		return parseRPMOutput(bytes.NewReader(out))
+		return parseRPMQueryOutput(bytes.NewReader(out))
 	}
 	return nil, fmt.Errorf("no supported package manager found (dpkg-query or rpm)")
 }
@@ -356,4 +361,72 @@ func parseNEVRA(s string) (name, version, release, arch string, ok bool) {
 		return "", "", "", "", false
 	}
 	return name, version, release, arch, true
+}
+
+// parseRPMQueryOutput parses the source-aware rpm query:
+// "name<TAB>version-release<TAB>sourcerpm<TAB>arch" per line. A line without
+// the source columns still parses (the source is simply unknown), and lines
+// where rpm reports "(none)" for SOURCERPM carry no source identity.
+func parseRPMQueryOutput(r io.Reader) ([]Package, error) {
+	var pkgs []Package
+	sc := bufio.NewScanner(r)
+	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if line == "" {
+			continue
+		}
+		fields := strings.Split(line, "\t")
+		if len(fields) < 2 {
+			continue
+		}
+		p := Package{Name: fields[0], Version: fields[1], Ecosystem: "rpm"}
+		arch := ""
+		if len(fields) >= 4 {
+			arch = strings.TrimSpace(fields[3])
+		}
+		p.Purl = "pkg:rpm/" + p.Name + "@" + p.Version
+		if arch != "" {
+			p.Purl += "?arch=" + arch
+		}
+		if len(fields) >= 3 {
+			if srcName, srcVer, ok := parseSourceRPM(fields[2]); ok && srcName != p.Name {
+				p.SourceName, p.SourceVersion = srcName, srcVer
+			}
+		}
+		pkgs = append(pkgs, p)
+	}
+	if err := sc.Err(); err != nil {
+		return nil, err
+	}
+	return pkgs, nil
+}
+
+// parseSourceRPM splits an SOURCERPM value ("kernel-devel-5.14.0-362.el9.src.rpm")
+// into source name and version. The name may contain dashes, the version and
+// release may not, so the split is from the right: name-version-release.src.rpm.
+func parseSourceRPM(s string) (name, version string, ok bool) {
+	s = strings.TrimSpace(s)
+	if s == "" || s == "(none)" {
+		return "", "", false
+	}
+	s = strings.TrimSuffix(s, ".rpm")
+	s = strings.TrimSuffix(s, ".src")
+	// name-version-release: split off release, then version, from the right.
+	i := strings.LastIndex(s, "-")
+	if i <= 0 {
+		return "", "", false
+	}
+	release := s[i+1:]
+	rest := s[:i]
+	j := strings.LastIndex(rest, "-")
+	if j <= 0 {
+		return "", "", false
+	}
+	ver := rest[j+1:]
+	name = rest[:j]
+	if name == "" || ver == "" || release == "" {
+		return "", "", false
+	}
+	return name, ver + "-" + release, true
 }

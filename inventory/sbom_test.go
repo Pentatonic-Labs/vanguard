@@ -295,3 +295,55 @@ func TestPackageIdentities(t *testing.T) {
 		t.Errorf("non-linux signed source produced %d identities, want 2", got)
 	}
 }
+
+// RHEL-family hosts had the same blind spot as Debian: rpm reports binary names
+// (kernel-core) while the databases file the CVE under the source (kernel). The
+// source version has to come out of the source rpm name because rpm exposes no
+// separate source version field.
+func TestParseRPMQueryOutputSource(t *testing.T) {
+	const out = "kernel-core\t5.14.0-362.el9\tkernel-5.14.0-362.el9.src.rpm\tx86_64\n" +
+		"kernel-devel\t5.14.0-362.el9\tkernel-5.14.0-362.el9.src.rpm\tx86_64\n" +
+		"openssl-libs\t3.0.7-27.el9\topenssl-3.0.7-27.el9.src.rpm\tx86_64\n" +
+		"bash\t5.2.15-2.el9\t(none)\tx86_64\n"
+	pkgs, err := parseRPMQueryOutput(strings.NewReader(out))
+	if err != nil {
+		t.Fatalf("parseRPMQueryOutput: %v", err)
+	}
+	if len(pkgs) != 4 {
+		t.Fatalf("got %d packages, want 4", len(pkgs))
+	}
+	if pkgs[0].SourceName != "kernel" || pkgs[0].SourceVersion != "5.14.0-362.el9" {
+		t.Errorf("kernel-core source = %q/%q", pkgs[0].SourceName, pkgs[0].SourceVersion)
+	}
+	// A dashed source name must not be split at the wrong dash.
+	if pkgs[1].SourceName != "kernel" {
+		t.Errorf("kernel-devel source = %q", pkgs[1].SourceName)
+	}
+	if pkgs[2].SourceName != "openssl" || pkgs[2].SourceVersion != "3.0.7-27.el9" {
+		t.Errorf("openssl-libs source = %q/%q", pkgs[2].SourceName, pkgs[2].SourceVersion)
+	}
+	if pkgs[3].SourceName != "" {
+		t.Errorf("(none) source should be empty, got %q", pkgs[3].SourceName)
+	}
+	if pkgs[0].Purl != "pkg:rpm/kernel-core@5.14.0-362.el9?arch=x86_64" {
+		t.Errorf("purl = %q", pkgs[0].Purl)
+	}
+}
+
+func TestParseSourceRPM(t *testing.T) {
+	cases := []struct {
+		in, name, ver string
+		ok            bool
+	}{
+		{"kernel-5.14.0-362.el9.src.rpm", "kernel", "5.14.0-362.el9", true},
+		{"kernel-devel-5.14.0-362.el9.src.rpm", "kernel-devel", "5.14.0-362.el9", true},
+		{"(none)", "", "", false},
+		{"", "", "", false},
+	}
+	for _, c := range cases {
+		name, ver, ok := parseSourceRPM(c.in)
+		if ok != c.ok || name != c.name || ver != c.ver {
+			t.Errorf("parseSourceRPM(%q) = (%q,%q,%v), want (%q,%q,%v)", c.in, name, ver, ok, c.name, c.ver, c.ok)
+		}
+	}
+}
