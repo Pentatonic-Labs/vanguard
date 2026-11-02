@@ -5,6 +5,7 @@ package remediate
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/Pentatonic-Labs/vanguard/cvmcore"
@@ -24,6 +25,14 @@ type Proposal struct {
 	Action    string  `json:"action"`
 	Score     float64 `json:"score"`
 	Summary   string  `json:"summary,omitempty"`
+	// AlsoAffected lists the other installed packages this same finding covers,
+	// i.e. everything with the same vulnerability AND the same fix. A distro
+	// CVE is filed against a SOURCE package, so one kernel CVE legitimately
+	// matches every installed binary built from that source — the image, the
+	// modules, the headers, across every kernel line on the box. Emitting one
+	// proposal per binary turns a 9.8 into thirty rows, buries everything else
+	// and makes the output unusable; the operator upgrades the kernel once.
+	AlsoAffected []string `json:"also_affected,omitempty"`
 }
 
 // HasFix reports whether a fixed version is known.
@@ -41,6 +50,18 @@ func (p Proposal) Explain() string {
 	}
 	b.WriteString(")")
 	fmt.Fprintf(&b, "\n  Package: %s (installed %s)", p.Package, p.Installed)
+	if n := len(p.AlsoAffected); n > 0 {
+		// One CVE, one fix, several installed binaries (a distro CVE names the
+		// source package): say so rather than inventing a row per binary.
+		shown := p.AlsoAffected
+		if len(shown) > 3 {
+			shown = shown[:3]
+		}
+		fmt.Fprintf(&b, "\n  Also affected (%d): %s", n, strings.Join(shown, ", "))
+		if n > len(shown) {
+			fmt.Fprintf(&b, " and %d more", n-len(shown))
+		}
+	}
 	if p.Summary != "" {
 		fmt.Fprintf(&b, "\n  Why it matters: %s", p.Summary)
 	}
@@ -65,6 +86,10 @@ func (p Proposal) Explain() string {
 // produce a proposal (HasFix is false).
 func Build(decisions []cvmcore.Decision, release string) []Proposal {
 	var out []Proposal
+	// One proposal per (vulnerability, fix). Binaries from the same source
+	// package carry the same fix, so they collapse into one row with the rest
+	// listed in AlsoAffected.
+	index := make(map[string]int, len(decisions))
 	for _, d := range decisions {
 		for _, purl := range d.Match.Packages {
 			name, installed := splitPurl(purl)
@@ -78,6 +103,17 @@ func Build(decisions []cvmcore.Decision, release string) []Proposal {
 				// operator to monitor instead.
 				action = "alert"
 			}
+			key := d.Match.Vuln.ID + "\x00" + fixed + "\x00" + action
+			if i, ok := index[key]; ok {
+				if out[i].Package != name && !contains(out[i].AlsoAffected, name) {
+					out[i].AlsoAffected = append(out[i].AlsoAffected, name)
+				}
+				if d.Score > out[i].Score {
+					out[i].Score = d.Score
+				}
+				continue
+			}
+			index[key] = len(out)
 			out = append(out, Proposal{
 				VulnID:    d.Match.Vuln.ID,
 				Severity:  d.Match.Vuln.Severity,
@@ -94,7 +130,20 @@ func Build(decisions []cvmcore.Decision, release string) []Proposal {
 			})
 		}
 	}
+	for i := range out {
+		sort.Strings(out[i].AlsoAffected)
+	}
 	return out
+}
+
+// contains reports whether name is already in list.
+func contains(list []string, name string) bool {
+	for _, s := range list {
+		if s == name {
+			return true
+		}
+	}
+	return false
 }
 
 // fixedFor returns the fixed version for purl from the vuln's affected ranges,

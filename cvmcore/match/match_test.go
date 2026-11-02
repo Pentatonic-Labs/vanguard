@@ -197,3 +197,69 @@ func TestReleaseScoping(t *testing.T) {
 		t.Errorf("release 16.04: want 0 matches (2.5 >= 2.0), got %v", got[0].Packages)
 	}
 }
+
+// A distro CVE names the SOURCE package; dpkg reports binaries. The kernel is
+// the case that matters: its image comes from linux-signed-nvidia-6.17 and its
+// modules from linux-nvidia-6.17, while OSV files the CVE under linux-nvidia-6.17
+// only. Matching the binary name alone reported zero kernel findings on a box
+// running a remotely exploitable kernel use-after-free.
+func TestMatchSourcePackageIdentity(t *testing.T) {
+	kernel := inventory.Package{
+		Name:          "linux-image-6.17.0-1031-nvidia",
+		Version:       "6.17.0-1031.31",
+		Purl:          "pkg:deb/linux-image-6.17.0-1031-nvidia@6.17.0-1031.31",
+		Ecosystem:     "deb",
+		SourceName:    "linux-signed-nvidia-6.17",
+		SourceVersion: "6.17.0-1031.31",
+	}
+	unrelated := pkg("bash", "5.2.15-2", "pkg:deb/bash@5.2.15-2", "deb")
+	vulns := []cvmcore.Vuln{{
+		ID:       "UBUNTU-CVE-2026-98432",
+		Severity: "critical",
+		CVSS:     9.8,
+		PURLs:    []string{"pkg:deb/linux-nvidia-6.17"},
+		Affected: []cvmcore.VersionRange{{
+			Purl:      "pkg:deb/linux-nvidia-6.17",
+			Ecosystem: "deb",
+			Release:   "24.04",
+			// Introduced 0 and no Fixed: the "no patch exists yet" case.
+		}},
+	}}
+
+	got := Match(vulns, []inventory.Package{kernel, unrelated}, "24.04")
+	if len(got) != 1 {
+		t.Fatalf("got %d matches, want 1", len(got))
+	}
+	// The published purl must stay the BINARY, or `vanguard fix` proposes a
+	// package apt cannot install.
+	want := []string{"pkg:deb/linux-image-6.17.0-1031-nvidia@6.17.0-1031.31"}
+	if !reflect.DeepEqual(got[0].Packages, want) {
+		t.Errorf("matched packages = %v, want %v", got[0].Packages, want)
+	}
+}
+
+// The source identity must not become a wildcard: a package whose source is
+// pinned above the fixed version is not affected.
+func TestMatchSourceIdentityRespectsFixed(t *testing.T) {
+	modules := inventory.Package{
+		Name:          "linux-modules-6.17.0-1032-nvidia",
+		Version:       "6.17.0-1032.32",
+		Purl:          "pkg:deb/linux-modules-6.17.0-1032-nvidia@6.17.0-1032.32",
+		Ecosystem:     "deb",
+		SourceName:    "linux-nvidia-6.17",
+		SourceVersion: "6.17.0-1032.32",
+	}
+	vulns := []cvmcore.Vuln{{
+		ID:    "UBUNTU-CVE-2099-0001",
+		PURLs: []string{"pkg:deb/linux-nvidia-6.17"},
+		Affected: []cvmcore.VersionRange{{
+			Purl:      "pkg:deb/linux-nvidia-6.17",
+			Ecosystem: "deb",
+			Release:   "24.04",
+			Fixed:     "6.17.0-1032.32",
+		}},
+	}}
+	if got := Match(vulns, []inventory.Package{modules}, "24.04"); len(got[0].Packages) != 0 {
+		t.Errorf("a package at the fixed version matched: %v", got[0].Packages)
+	}
+}

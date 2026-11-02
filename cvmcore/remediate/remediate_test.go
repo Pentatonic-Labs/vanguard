@@ -91,3 +91,56 @@ func TestExplain(t *testing.T) {
 		}
 	}
 }
+
+// One CVE, one fix, several installed binaries: a distro CVE names the source
+// package, so a kernel CVE legitimately matches the image, the modules and the
+// headers of every kernel line on the box. That must be one row (with the rest
+// listed), not thirty — otherwise the alert is buried in its own noise.
+func TestBuildCollapsesSameFix(t *testing.T) {
+	decisions := []cvmcore.Decision{{
+		Action: cvmcore.ActionAlert,
+		Score:  9.8,
+		Match: cvmcore.Match{
+			Packages: []string{
+				"pkg:deb/linux-image-6.17.0-1031-nvidia@6.17.0-1031.31",
+				"pkg:deb/linux-modules-6.17.0-1031-nvidia@6.17.0-1031.31",
+				"pkg:deb/linux-headers-6.17.0-1031-nvidia@6.17.0-1031.31",
+			},
+			Vuln: cvmcore.Vuln{ID: "UBUNTU-CVE-2026-98432", Severity: "critical", CVSS: 9.8,
+				Affected: []cvmcore.VersionRange{{Ecosystem: "deb", Release: "24.04"}}},
+		},
+	}}
+	got := Build(decisions, "24.04")
+	if len(got) != 1 {
+		t.Fatalf("got %d proposals, want 1: %+v", len(got), got)
+	}
+	if got[0].Package != "linux-image-6.17.0-1031-nvidia" {
+		t.Errorf("kept package = %q", got[0].Package)
+	}
+	want := []string{"linux-headers-6.17.0-1031-nvidia", "linux-modules-6.17.0-1031-nvidia"}
+	if len(got[0].AlsoAffected) != 2 || got[0].AlsoAffected[0] != want[0] || got[0].AlsoAffected[1] != want[1] {
+		t.Errorf("also affected = %v, want %v", got[0].AlsoAffected, want)
+	}
+	if !strings.Contains(got[0].Explain(), "Also affected (2)") {
+		t.Errorf("explain does not mention the collapsed packages:\n%s", got[0].Explain())
+	}
+}
+
+// Collapsing must key on the fix, not just the CVE: two packages needing
+// different upgrades are two actions.
+func TestBuildKeepsDifferentFixes(t *testing.T) {
+	decisions := []cvmcore.Decision{{
+		Action: cvmcore.ActionPropose,
+		Score:  7.5,
+		Match: cvmcore.Match{
+			Packages: []string{"pkg:deb/libssl3t64@3.0.13", "pkg:deb/openssl@3.0.13"},
+			Vuln: cvmcore.Vuln{ID: "DEBIAN-CVE-2099-1", Affected: []cvmcore.VersionRange{
+				{Purl: "pkg:deb/libssl3t64", Ecosystem: "deb", Release: "24.04", Fixed: "3.0.16"},
+				{Purl: "pkg:deb/openssl", Ecosystem: "deb", Release: "24.04", Fixed: "3.0.17"},
+			}},
+		},
+	}}
+	if got := Build(decisions, "24.04"); len(got) != 2 {
+		t.Fatalf("got %d proposals, want 2 (different fixes must not collapse)", len(got))
+	}
+}

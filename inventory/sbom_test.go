@@ -219,3 +219,79 @@ func TestNewSBOMSorts(t *testing.T) {
 		t.Errorf("sorted packages = %v, want %v", got, want)
 	}
 }
+
+// A kernel ships as three sources for one build: the image comes from
+// linux-signed-nvidia-6.17, the modules and headers from linux-nvidia-6.17.
+// dpkg knows that; a parser that keeps only the binary name throws it away and
+// nothing in the kernel can ever match a distro CVE.
+func TestParseDpkgOutputSourceFields(t *testing.T) {
+	const out = "linux-image-6.17.0-1031-nvidia\t6.17.0-1031.31\tlinux-signed-nvidia-6.17\t6.17.0-1031.31\n" +
+		"linux-modules-6.17.0-1031-nvidia\t6.17.0-1031.31\tlinux-nvidia-6.17\t6.17.0-1031.31\n" +
+		"openssl\t3.0.13-0ubuntu3.7\topenssl\t3.0.13-0ubuntu3.7\n"
+	pkgs, err := parseDpkgOutput(strings.NewReader(out))
+	if err != nil {
+		t.Fatalf("parseDpkgOutput: %v", err)
+	}
+	if len(pkgs) != 3 {
+		t.Fatalf("got %d packages, want 3", len(pkgs))
+	}
+	if pkgs[0].SourceName != "linux-signed-nvidia-6.17" || pkgs[0].SourceVersion != "6.17.0-1031.31" {
+		t.Errorf("image source = %q/%q", pkgs[0].SourceName, pkgs[0].SourceVersion)
+	}
+	if pkgs[1].SourceName != "linux-nvidia-6.17" {
+		t.Errorf("modules source = %q", pkgs[1].SourceName)
+	}
+	// Same name: no second identity, so nothing downstream gets a duplicate.
+	if pkgs[2].SourceName != "" || pkgs[2].SourceVersion != "" {
+		t.Errorf("openssl should carry no separate source, got %q/%q", pkgs[2].SourceName, pkgs[2].SourceVersion)
+	}
+}
+
+// Two-field output is what the old query produced, and fixtures elsewhere still
+// use it: it must parse, just without source identities.
+func TestParseDpkgOutputLegacyTwoFields(t *testing.T) {
+	pkgs, err := parseDpkgOutput(strings.NewReader("bash\t5.2.15-2\n"))
+	if err != nil {
+		t.Fatalf("parseDpkgOutput: %v", err)
+	}
+	if len(pkgs) != 1 || pkgs[0].Name != "bash" || pkgs[0].Purl != "pkg:deb/bash@5.2.15-2" {
+		t.Fatalf("got %+v", pkgs)
+	}
+	if pkgs[0].SourceName != "" {
+		t.Errorf("legacy line should carry no source, got %q", pkgs[0].SourceName)
+	}
+}
+
+// Identities must lead with the binary itself (so the emitted purl is something
+// apt can install) and must reach the unsigned kernel source, because that is
+// the only name OSV files the CVE under.
+func TestPackageIdentities(t *testing.T) {
+	p := Package{
+		Name:          "linux-image-6.17.0-1031-nvidia",
+		Version:       "6.17.0-1031.31",
+		Purl:          "pkg:deb/linux-image-6.17.0-1031-nvidia@6.17.0-1031.31",
+		Ecosystem:     "deb",
+		SourceName:    "linux-signed-nvidia-6.17",
+		SourceVersion: "6.17.0-1031.31",
+	}
+	ids := p.Identities()
+	want := []string{
+		"pkg:deb/linux-image-6.17.0-1031-nvidia@6.17.0-1031.31",
+		"pkg:deb/linux-signed-nvidia-6.17@6.17.0-1031.31",
+		"pkg:deb/linux-nvidia-6.17@6.17.0-1031.31",
+	}
+	if len(ids) != len(want) {
+		t.Fatalf("got %d identities, want %d: %+v", len(ids), len(want), ids)
+	}
+	for i, w := range want {
+		if ids[i].Purl != w {
+			t.Errorf("identity %d = %q, want %q", i, ids[i].Purl, w)
+		}
+	}
+	// A non-kernel signed source must not be rewritten into a "linux-" name.
+	q := Package{Name: "foo", Version: "1", Purl: "pkg:deb/foo@1", Ecosystem: "deb",
+		SourceName: "bar-signed-1", SourceVersion: "1"}
+	if got := len(q.Identities()); got != 2 {
+		t.Errorf("non-linux signed source produced %d identities, want 2", got)
+	}
+}

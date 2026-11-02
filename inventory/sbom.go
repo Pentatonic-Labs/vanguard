@@ -20,6 +20,57 @@ type Package struct {
 	Version   string
 	Purl      string
 	Ecosystem string
+	// SourceName and SourceVersion identify the SOURCE package the binary was
+	// built from, when it differs from Name (empty otherwise).
+	//
+	// Vulnerability databases index distro packages by source name: OSV's
+	// Ubuntu records are filed under "linux-nvidia-6.17", not under the
+	// binary "linux-image-6.17.0-1031-nvidia". Matching on the binary name
+	// alone therefore misses every package whose binary and source names
+	// differ, and the kernel is the worst case — a box could run a remotely
+	// exploitable kernel CVE and report zero kernel findings.
+	SourceName    string
+	SourceVersion string
+}
+
+// Identities returns every way a vulnerability record might name this
+// package: the binary itself, then its source package, then the source
+// package with Canonical's "linux-signed-" prefix dropped.
+//
+// The kernel ships as three sources for one kernel: `linux-image-*
+// -nvidia` comes from "linux-signed-nvidia-6.17", the modules from
+// "linux-nvidia-6.17", and OSV files the CVE only under the latter. The
+// signed/unsigned pairing is not a guess — it is Canonical's naming for the
+// signed copy of the same build — but it is applied only to the source name
+// so an unrelated binary name can never be widened.
+//
+// The first element is always the package itself, so a caller that emits the
+// matched purl keeps naming something a package manager can install.
+func (p Package) Identities() []Package {
+	ids := []Package{p}
+	if p.SourceName == "" || p.SourceName == p.Name {
+		return ids
+	}
+	src := p
+	src.Name = p.SourceName
+	src.Version = p.SourceVersion
+	src.Purl = purlFor(p.SourceName, p.SourceVersion)
+	ids = append(ids, src)
+	if trimmed, ok := strings.CutPrefix(p.SourceName, "linux-signed-"); ok {
+		unsigned := src
+		unsigned.Name = "linux-" + trimmed
+		unsigned.Purl = purlFor(unsigned.Name, src.Version)
+		ids = append(ids, unsigned)
+	}
+	return ids
+}
+
+// purlFor builds a deb purl from a name and version.
+func purlFor(name, version string) string {
+	if version == "" {
+		return "pkg:deb/" + name
+	}
+	return "pkg:deb/" + name + "@" + version
 }
 
 // SBOM is a software bill of materials.
@@ -173,7 +224,11 @@ func spdxID(name string, idx int) string {
 // OS packages as Package values with deb or rpm purls.
 func CollectOSPackages() ([]Package, error) {
 	if _, err := exec.LookPath("dpkg-query"); err == nil {
-		out, err := exec.Command("dpkg-query", "-W", "-f=${Package}\t${Version}\n").Output()
+		// Source fields are asked for explicitly: dpkg's default output is
+		// binary name + version only, and that is not what the vulnerability
+		// databases are keyed on.
+		out, err := exec.Command("dpkg-query", "-W",
+			"-f=${Package}\t${Version}\t${source:Package}\t${source:Version}\n").Output()
 		if err != nil {
 			return nil, fmt.Errorf("dpkg-query: %w", err)
 		}
@@ -189,26 +244,52 @@ func CollectOSPackages() ([]Package, error) {
 	return nil, fmt.Errorf("no supported package manager found (dpkg-query or rpm)")
 }
 
-// parseDpkgOutput parses `dpkg-query -W` output ("name<TAB>version" per line).
+// parseDpkgOutput parses `dpkg-query -W` output. Full output is
+// "name<TAB>version<TAB>source<TAB>source-version" per line; the source fields
+// are optional, so a two-field line (older callers and fixtures) still parses.
 func parseDpkgOutput(r io.Reader) ([]Package, error) {
 	var pkgs []Package
 	sc := bufio.NewScanner(r)
+	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())
 		if line == "" {
 			continue
 		}
-		fields := strings.Fields(line)
+		fields := strings.Split(line, "\t")
+		if len(fields) < 2 {
+			fields = strings.Fields(line)
+		}
 		if len(fields) < 2 {
 			continue
 		}
-		name, version := fields[0], fields[1]
-		pkgs = append(pkgs, Package{
-			Name:      name,
-			Version:   version,
-			Purl:      "pkg:deb/" + name + "@" + version,
+		p := Package{
+			Name:      fields[0],
+			Version:   fields[1],
+			Purl:      purlFor(fields[0], fields[1]),
 			Ecosystem: "deb",
-		})
+		}
+		// dpkg reports the source as "name (version)" when the version
+		// differs from the binary's; the format string above gives them
+		// separately, but be tolerant of the parenthesised shape anyway.
+		if len(fields) >= 4 && fields[2] != "" {
+			srcName := strings.TrimSpace(fields[2])
+			srcVer := strings.TrimSpace(fields[3])
+			if i := strings.IndexByte(srcName, ' '); i >= 0 {
+				if srcVer == "" {
+					srcVer = strings.Trim(srcName[i:], " ()")
+				}
+				srcName = srcName[:i]
+			}
+			if srcName != p.Name {
+				p.SourceName = srcName
+				if srcVer == "" {
+					srcVer = p.Version
+				}
+				p.SourceVersion = srcVer
+			}
+		}
+		pkgs = append(pkgs, p)
 	}
 	if err := sc.Err(); err != nil {
 		return nil, err
