@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os/exec"
 	"strings"
 	"time"
 )
@@ -22,10 +23,16 @@ type httpDoer interface {
 // Option configures a checker.
 type Option func(*config)
 
+// commandRunner runs a read-only local command and returns its combined output.
+// It is injectable so tests can substitute canned output without touching a
+// real binary.
+type commandRunner func(ctx context.Context, name string, args ...string) ([]byte, error)
+
 // config holds the injectable, shared parts of every checker.
 type config struct {
 	baseURL string
 	client  httpDoer
+	runCmd  commandRunner
 }
 
 // WithBaseURL overrides the service base URL (for tests).
@@ -35,9 +42,18 @@ func WithBaseURL(u string) Option { return func(c *config) { c.baseURL = u } }
 // 10-second timeout.
 func WithHTTPClient(cl httpDoer) Option { return func(c *config) { c.client = cl } }
 
+// WithCommandRunner injects a command runner (for tests). The default runs the
+// named command via the OS and returns its combined stdout/stderr.
+func WithCommandRunner(r commandRunner) Option { return func(c *config) { c.runCmd = r } }
+
 // applyOptions applies opts over defaults.
 func applyOptions(opts []Option) *config {
-	c := &config{client: &http.Client{Timeout: 10 * time.Second}}
+	c := &config{
+		client: &http.Client{Timeout: 10 * time.Second},
+		runCmd: func(ctx context.Context, name string, args ...string) ([]byte, error) {
+			return exec.CommandContext(ctx, name, args...).CombinedOutput()
+		},
+	}
 	for _, o := range opts {
 		o(c)
 	}

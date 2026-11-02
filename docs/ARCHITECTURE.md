@@ -81,7 +81,10 @@ Everything is event-driven. There is no polling-only bottleneck on the reactive 
   NGC container images and their digests, Triton/Inference Server versions, GPU firmware
   and VBIOS, kernel/driver mismatch state. Outputs purls + a hardware manifest.
 - SaaS posture (GitHub / Entra / Cloudflare / Linear): read-only API + config checks.
-  **No offensive probing against SaaS** — posture review only, by design.
+- Tailscale posture: read-only `tailscale` subcommands mapping local node state
+  to the Tailworm findings (tailscaled version, Tailnet Lock, SSH server,
+  serve TCP→unix forwards, app connector, key expiry, headscale control plane).
+  **No offensive probing against SaaS or peers** — posture review only, by design.
 
 ### 3.3 `recipes` — the plugin interface
 A recipe is declarative (YAML) and answers four questions: *what to collect, how to

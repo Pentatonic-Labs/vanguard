@@ -1,7 +1,8 @@
-// Package posture performs read-only posture checks against SaaS services
-// (GitHub, Microsoft Entra, Cloudflare, Linear). It never mutates remote
-// state: every request is an HTTP GET, and credentials come only from
-// environment variables. There is deliberately no offensive probing here.
+// Package posture performs read-only posture checks: SaaS services (GitHub,
+// Microsoft Entra, Cloudflare, Linear) via HTTP GET, and the local Tailscale
+// node via read-only `tailscale` subcommands (mapping to the Tailworm
+// findings). It never mutates remote or local state, credentials come only
+// from environment variables, and there is deliberately no offensive probing.
 package posture
 
 import "context"

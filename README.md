@@ -29,6 +29,7 @@ It runs two loops:
 | `vanguard watch` | Poll on a cadence; alert on **new findings** *and* when a **patch becomes available** |
 | `vanguard inventory` | Inventory the NVIDIA/DGX/GB10 hardware: driver, CUDA, cuDNN, GPU firmware/VBIOS, NGC images, Grace/GB10, MIG, DPU |
 | `vanguard fix` | Print the exact `apt-get install --only-upgrade` command for every fixable finding (dry-run — never auto-applies) |
+| `vanguard posture` | Read-only security-posture checks: local Tailscale/Tailworm exposure, plus GitHub / Entra / Cloudflare / Linear when their tokens are set |
 | `vanguard ui` | Open a local read-only dashboard (inventory + findings from both loops) |
 | `make dogfood` | Run both loops at once against this box + the in-repo demo target |
 | red-team (Python) | Point the frontier-model agentic attacker at a replica of your service |
@@ -157,7 +158,7 @@ go install github.com/Pentatonic-Labs/vanguard/cmd/vanguard@main
 - `inventory/` — SBOM generation, the DGX/GB10 collectors (drivers, firmware, NGC, platform), and runtime reachability
 - `fixer/` — manifest-precise fixes with a dry-run verification gate
 - `findings/` — the finding schema (with semantic `expected` proof for agentic findings)
-- `posture/` — read-only SaaS posture checks (GitHub / Entra / Cloudflare / Linear)
+- `posture/` — read-only posture checks: SaaS (GitHub / Entra / Cloudflare / Linear) and the local Tailscale node (Tailworm findings)
 - `redteam/` — the red-team harness (Python): agentic attacker, playbook, proof gate, sandbox
 - `docs/` — architecture, threat model, spec docs, and the briefing note
 
