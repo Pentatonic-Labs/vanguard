@@ -26,23 +26,40 @@ func Match(vulns []cvmcore.Vuln, pkgs []inventory.Package, release string) []cvm
 			if p.Purl == "" || seen[p.Purl] {
 				continue
 			}
-			matched := purlIn(p.Purl, v.PURLs)
-			if !matched {
+			// A record may name the binary package or its SOURCE package — OSV
+			// files distro CVEs under the source ("linux-nvidia-6.17"), while
+			// dpkg reports binaries ("linux-image-6.17.0-1031-nvidia"). Match
+			// both identities, but emit p.Purl: the fix has to name a package
+			// apt can actually install.
+			matched := false
+			for _, id := range p.Identities() {
+				if purlIn(id.Purl, v.PURLs) {
+					matched = true
+					break
+				}
 				for _, r := range v.Affected {
 					if r.Release != "" && release != "" && r.Release != release {
 						continue
 					}
-					if r.Purl != "" && !purlMatches(p.Purl, r.Purl) {
+					if r.Purl != "" && !purlMatches(id.Purl, r.Purl) {
 						continue
 					}
-					if p.Ecosystem == r.Ecosystem && inRange(p.Version, r) {
+					if id.Ecosystem == r.Ecosystem && inRange(id.Version, r) {
 						matched = true
 						break
 					}
 				}
+				if matched {
+					break
+				}
 			}
 			if !matched {
-				matched = pkgMatchesCPE(p, v.CPEs)
+				for _, id := range p.Identities() {
+					if pkgMatchesCPE(id, v.CPEs) {
+						matched = true
+						break
+					}
+				}
 			}
 			if matched {
 				seen[p.Purl] = true

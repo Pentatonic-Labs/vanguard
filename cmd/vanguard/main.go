@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sync/atomic"
 
 	"github.com/Pentatonic-Labs/vanguard/cvmcore"
 	"github.com/Pentatonic-Labs/vanguard/cvmcore/fetch"
@@ -44,11 +45,19 @@ func main() {
 	runScan()
 }
 
+// feedFailures counts feeds that could not be fetched during this process's
+// runs. A skipped feed is not "no vulnerabilities": on a host whose DNS died,
+// both feeds fail, the scan finds nothing, and recording that as a baseline
+// reports a permanently clean box. The watcher refuses to baseline a scan that
+// lost a feed (see watch.go).
+var feedFailures atomic.Int64
+
 // scanConfig builds the pipeline configuration shared by scan and watch.
 func scanConfig() pipeline.Config {
 	cfg := pipeline.Config{
 		ParseCacheDir: fetch.DefaultCacheDir(),
 		OnFeedError: func(feed string, err error) {
+			feedFailures.Add(1)
 			fmt.Fprintf(os.Stderr, "vanguard: warning: %s feed skipped: %v\n", feed, err)
 		},
 	}

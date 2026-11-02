@@ -28,19 +28,19 @@ type gpuView struct {
 }
 
 type inventoryView struct {
-	Host          string    `json:"host"`
-	OS            string    `json:"os"`
-	Driver        string    `json:"driver"`
-	CUDA          string    `json:"cuda"`
-	CuDNN         string    `json:"cudnn"`
-	GPUs          []gpuView `json:"gpus"`
-	FirmwareDevs  []string  `json:"firmware_deviations"`
-	NGCImages     int       `json:"ngc_images"`
-	Triton        string    `json:"triton"`
-	SoC           string    `json:"soc"`
-	Grace         bool      `json:"grace"`
-	MIGMode       string    `json:"mig_mode"`
-	DPUNICs       []string  `json:"dpu_nics"`
+	Host         string    `json:"host"`
+	OS           string    `json:"os"`
+	Driver       string    `json:"driver"`
+	CUDA         string    `json:"cuda"`
+	CuDNN        string    `json:"cudnn"`
+	GPUs         []gpuView `json:"gpus"`
+	FirmwareDevs []string  `json:"firmware_deviations"`
+	NGCImages    int       `json:"ngc_images"`
+	Triton       string    `json:"triton"`
+	SoC          string    `json:"soc"`
+	Grace        bool      `json:"grace"`
+	MIGMode      string    `json:"mig_mode"`
+	DPUNICs      []string  `json:"dpu_nics"`
 }
 
 func runUI(args []string) {
