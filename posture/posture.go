@@ -15,10 +15,12 @@ type Checker interface {
 
 // Result is the outcome of a single posture check.
 type Result struct {
-	Service string // "github", "entra", "cloudflare", "linear"
-	Check   string // short, human-readable check name
-	Pass    bool   // whether the posture property holds
-	Detail  string // explanation, evidence, or remediation hint
+	Service  string // "github", "entra", "cloudflare", "linear", "runtime"
+	Check    string // short, human-readable check name
+	Pass     bool   // whether the posture property holds
+	Detail   string // explanation, evidence, or remediation hint
+	Severity string // "low", "medium" or "high" for a failure; empty when it passes
+	Fix      string // plain-English remediation for a failure
 }
 
 // notConfigured is the result emitted when a checker's credential env var is
