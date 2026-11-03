@@ -58,8 +58,13 @@ func scanConfig() pipeline.Config {
 		ParseCacheDir: fetch.DefaultCacheDir(),
 		// Browser builds a test tool downloaded are not dpkg/rpm packages, so
 		// they are collected separately; without this a bundled Chromium is
-		// invisible to the scan.
-		CollectBrowsers: inventory.CollectBrowsers,
+		// invisible to the scan. A build the collector refuses to run is
+		// reported: a silent skip would hide an attacker-planted binary.
+		CollectBrowsers: func() ([]inventory.Package, error) {
+			return inventory.CollectBrowsersWithNotes(func(msg string) {
+				fmt.Fprintf(os.Stderr, "vanguard: warning: %s\n", msg)
+			})
+		},
 		OnFeedError: func(feed string, err error) {
 			feedFailures.Add(1)
 			fmt.Fprintf(os.Stderr, "vanguard: warning: %s feed skipped: %v\n", feed, err)

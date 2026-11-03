@@ -22,8 +22,11 @@ const (
 	DefaultOSVQueryURL = "https://api.osv.dev/v1/querybatch"
 	DefaultNVDURL      = "https://services.nvd.nist.gov/rest/json/cves/2.0"
 	// DefaultChromeReleasesURL is the Chrome Releases blog Atom feed. It is
-	// the only timely public source for browser release versions.
-	DefaultChromeReleasesURL = "https://chromereleases.googleblog.com/feeds/posts/default"
+	// the only timely public source for browser release versions. The feed
+	// returns about 25 posts by default and interleaves Android, ChromeOS and
+	// Extended Stable ones, so a desktop advisory — and its in-the-wild
+	// statement — ages out within weeks; ask for a wider window.
+	DefaultChromeReleasesURL = "https://chromereleases.googleblog.com/feeds/posts/default?max-results=150"
 )
 
 const defaultUserAgent = "vanguard/0.1 (+https://github.com/Pentatonic-Labs/vanguard)"

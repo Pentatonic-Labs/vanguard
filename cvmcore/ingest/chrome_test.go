@@ -18,8 +18,8 @@ func TestParseChromeReleasesFixture(t *testing.T) {
 		t.Fatalf("ParseChromeReleases: %v", err)
 	}
 
-	// The Android post is in the feed but not a desktop release, so only the
-	// two desktop CVEs may come out.
+	// The Android and Extended Stable posts are in the feed but are not desktop
+	// stable releases, so only the two desktop CVEs may come out.
 	if len(vulns) != 2 {
 		t.Fatalf("got %d vulns, want 2: %+v", len(vulns), vulns)
 	}
@@ -30,6 +30,9 @@ func TestParseChromeReleasesFixture(t *testing.T) {
 	}
 	if _, ok := byID["CVE-2025-33333"]; ok {
 		t.Errorf("Android post produced a record: %+v", vulns[byID["CVE-2025-33333"]])
+	}
+	if _, ok := byID["CVE-2025-44444"]; ok {
+		t.Errorf("Extended Stable post produced a record: %+v", vulns[byID["CVE-2025-44444"]])
 	}
 
 	wild, ok := byID["CVE-2025-11111"]
@@ -68,6 +71,25 @@ func TestParseChromeReleasesFixture(t *testing.T) {
 		}
 		if len(v.PURLs) != 1 || v.PURLs[0] != chromePURL {
 			t.Errorf("%s: purls = %v, want [%s]", v.ID, v.PURLs, chromePURL)
+		}
+	}
+}
+
+func TestIsChromeDesktopPost(t *testing.T) {
+	tests := []struct {
+		title string
+		want  bool
+	}{
+		{"Stable Channel Update for Desktop", true},
+		{"Extended Stable Channel Update for Desktop", false},
+		{"Stable Channel Update for ChromeOS", false},
+		{"Stable Channel Update for Android", false},
+		{"Chrome for iOS Update", false},
+		{"Dev Channel Update for Desktop", false},
+	}
+	for _, tt := range tests {
+		if got := isChromeDesktopPost(tt.title); got != tt.want {
+			t.Errorf("isChromeDesktopPost(%q) = %v, want %v", tt.title, got, tt.want)
 		}
 	}
 }

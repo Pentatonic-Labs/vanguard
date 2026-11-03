@@ -18,9 +18,21 @@ const ChromeEcosystem = "chromium"
 const chromePURL = "pkg:generic/chromium"
 
 // chromeDesktopPostTitle identifies the posts that carry desktop browser
-// releases. Feeds also carry Android, ChromeOS and Dev/Beta posts, whose
-// versions live in different numbering and would match nothing here.
+// releases. Feeds also carry Android, ChromeOS, iOS, Extended Stable and
+// Dev/Beta posts, whose versions live in different numbering and would match
+// nothing here — or worse, match the wrong browser.
 const chromeDesktopPostTitle = "Stable Channel Update for Desktop"
+
+// chromeOtherProductTitles are the per-product posts that must never be read as
+// a desktop stable release. "Extended Stable" is the important one: its title
+// also says "Stable Channel Update for Desktop", but it describes a slower
+// branch, so its fixed version would not apply to a current stable build.
+var chromeOtherProductTitles = []string{
+	"extended stable",
+	"chromeos",
+	"android",
+	"ios",
+}
 
 // chromeFeed is the subset of the Atom feed this adapter reads.
 type chromeFeed struct {
@@ -112,7 +124,13 @@ func ParseChromeReleases(data []byte) ([]cvmcore.Vuln, error) {
 
 // isChromeDesktopPost reports whether a feed entry is a desktop stable release.
 func isChromeDesktopPost(title string) bool {
-	return strings.Contains(strings.ToLower(title), strings.ToLower(chromeDesktopPostTitle))
+	lower := strings.ToLower(title)
+	for _, skip := range chromeOtherProductTitles {
+		if strings.Contains(lower, skip) {
+			return false
+		}
+	}
+	return strings.Contains(lower, strings.ToLower(chromeDesktopPostTitle))
 }
 
 // stripHTML removes markup so the text can be scanned line by line. Feed
