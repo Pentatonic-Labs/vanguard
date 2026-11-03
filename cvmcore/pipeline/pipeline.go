@@ -23,10 +23,14 @@ type Config struct {
 	FetchKEV       func(ctx context.Context) ([]byte, error)
 	FetchNVD       func(ctx context.Context) ([]byte, error)
 	FetchOSVExport func(ctx context.Context, ecosystem string) ([]byte, error)
+	// FetchChromeReleases fetches the browser release feed; defaults to the
+	// cached Chrome Releases Atom feed.
+	FetchChromeReleases func(ctx context.Context) ([]byte, error)
 
-	ParseKEV       func(data []byte) ([]cvmcore.Vuln, error)
-	ParseNVD       func(data []byte) ([]cvmcore.Vuln, error)
-	ParseOSVExport func(data []byte) ([]cvmcore.Vuln, error)
+	ParseKEV            func(data []byte) ([]cvmcore.Vuln, error)
+	ParseNVD            func(data []byte) ([]cvmcore.Vuln, error)
+	ParseOSVExport      func(data []byte) ([]cvmcore.Vuln, error)
+	ParseChromeReleases func(data []byte) ([]cvmcore.Vuln, error)
 
 	// OSVEcosystem names the OSV export to download. When empty it is
 	// detected from the host OS (see DetectOSID).
@@ -54,6 +58,11 @@ type Config struct {
 	OnFeedError func(feed string, err error)
 
 	CollectPackages func() ([]inventory.Package, error)
+
+	// CollectBrowsers returns browser builds that a package manager does not
+	// track (test-tool caches, /opt, /usr/bin); defaults to
+	// inventory.CollectBrowsers.
+	CollectBrowsers func() ([]inventory.Package, error)
 }
 
 // withDefaults fills unset fields with production defaults.
@@ -71,6 +80,9 @@ func (c Config) withDefaults() Config {
 	if out.FetchOSVExport == nil {
 		out.FetchOSVExport = fc.FetchOSVExport
 	}
+	if out.FetchChromeReleases == nil {
+		out.FetchChromeReleases = fc.FetchChromeReleases
+	}
 	if out.ParseKEV == nil {
 		out.ParseKEV = ingest.ParseKEV
 	}
@@ -79,6 +91,9 @@ func (c Config) withDefaults() Config {
 	}
 	if out.ParseOSVExport == nil {
 		out.ParseOSVExport = ingest.ParseOSVExport
+	}
+	if out.ParseChromeReleases == nil {
+		out.ParseChromeReleases = ingest.ParseChromeReleases
 	}
 	if out.DetectOSVersion == nil {
 		out.DetectOSVersion = inventory.DetectOSVersion
@@ -91,6 +106,9 @@ func (c Config) withDefaults() Config {
 	}
 	if out.CollectPackages == nil {
 		out.CollectPackages = inventory.CollectOSPackages
+	}
+	if out.CollectBrowsers == nil {
+		out.CollectBrowsers = inventory.CollectBrowsers
 	}
 	return out
 }
@@ -126,6 +144,17 @@ func Run(ctx context.Context, cfg Config) ([]cvmcore.Decision, error) {
 		return nil, fmt.Errorf("collect inventory: %w", err)
 	}
 
+	// Browser builds outside the package manager are appended to the dpkg/rpm
+	// inventory: a Playwright-bundled Chromium is a real browser on the host,
+	// and it is the one nothing upgrades. A host with no such builds, or a
+	// cache this process cannot read, is not a failed scan, so an error here is
+	// reported and skipped instead of aborting the run.
+	if browserPkgs, err := cfg.CollectBrowsers(); err == nil {
+		pkgs = append(pkgs, browserPkgs...)
+	} else if cfg.OnFeedError != nil {
+		cfg.OnFeedError("browser inventory", err)
+	}
+
 	var vulns []cvmcore.Vuln
 
 	// runFeed fetches and parses one feed, appending its vulns. When
@@ -151,6 +180,9 @@ func Run(ctx context.Context, cfg Config) ([]cvmcore.Decision, error) {
 		return nil, err
 	}
 	if err := runFeed("NVD", cfg.FetchNVD, cfg.ParseNVD); err != nil {
+		return nil, err
+	}
+	if err := runFeed("Chrome Releases", cfg.FetchChromeReleases, cfg.ParseChromeReleases); err != nil {
 		return nil, err
 	}
 	osvEco := cfg.OSVEcosystem

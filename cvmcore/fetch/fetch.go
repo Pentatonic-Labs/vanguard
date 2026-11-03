@@ -21,6 +21,9 @@ const (
 	DefaultKEVURL      = "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
 	DefaultOSVQueryURL = "https://api.osv.dev/v1/querybatch"
 	DefaultNVDURL      = "https://services.nvd.nist.gov/rest/json/cves/2.0"
+	// DefaultChromeReleasesURL is the Chrome Releases blog Atom feed. It is
+	// the only timely public source for browser release versions.
+	DefaultChromeReleasesURL = "https://chromereleases.googleblog.com/feeds/posts/default"
 )
 
 const defaultUserAgent = "vanguard/0.1 (+https://github.com/Pentatonic-Labs/vanguard)"
@@ -34,9 +37,10 @@ const maxResponseBytes = 1 << 30 // 1 GiB
 // timeout, a User-Agent, and simple rate-limit courtesy between requests.
 type Client struct {
 	// URLs may be overridden (e.g. to point at a test server).
-	KEVURL      string
-	OSVQueryURL string
-	NVDURL      string
+	KEVURL            string
+	OSVQueryURL       string
+	NVDURL            string
+	ChromeReleasesURL string
 
 	// NVDPageSize is the NVD resultsPerPage used when paginating. Zero falls
 	// back to 2000.
@@ -67,13 +71,14 @@ func WithMinDelay(d time.Duration) Option {
 // a small default minimum delay between requests.
 func NewClient(timeout time.Duration, opts ...Option) *Client {
 	c := &Client{
-		KEVURL:      DefaultKEVURL,
-		OSVQueryURL: DefaultOSVQueryURL,
-		NVDURL:      DefaultNVDURL,
-		NVDPageSize: 2000,
-		MinDelay:    100 * time.Millisecond,
-		httpClient:  &http.Client{Timeout: timeout},
-		userAgent:   defaultUserAgent,
+		KEVURL:            DefaultKEVURL,
+		OSVQueryURL:       DefaultOSVQueryURL,
+		NVDURL:            DefaultNVDURL,
+		ChromeReleasesURL: DefaultChromeReleasesURL,
+		NVDPageSize:       2000,
+		MinDelay:          100 * time.Millisecond,
+		httpClient:        &http.Client{Timeout: timeout},
+		userAgent:         defaultUserAgent,
 	}
 	for _, o := range opts {
 		o(c)
@@ -84,6 +89,13 @@ func NewClient(timeout time.Duration, opts ...Option) *Client {
 // FetchKEV downloads the CISA Known Exploited Vulnerabilities catalog.
 func (c *Client) FetchKEV(ctx context.Context) ([]byte, error) {
 	return c.get(ctx, c.KEVURL)
+}
+
+// FetchChromeReleases downloads the Chrome Releases Atom feed. It goes through
+// the on-disk cache, so a scan that runs several times a day refetches it only
+// when the feed changed.
+func (c *Client) FetchChromeReleases(ctx context.Context) ([]byte, error) {
+	return c.getCached(ctx, c.ChromeReleasesURL)
 }
 
 // FetchNVD downloads the NVD 2.0 CVE feed.
