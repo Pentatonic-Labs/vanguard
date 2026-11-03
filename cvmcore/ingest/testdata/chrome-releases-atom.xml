@@ -1,0 +1,31 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<feed xmlns='http://www.w3.org/2005/Atom' xmlns:openSearch='http://a9.com/-/spec/opensearchrss/1.0/'>
+  <title type='text'>Chrome Releases</title>
+  <entry>
+    <id>tag:blogger.com,1999:blog-8988938189639087705.post-1</id>
+    <published>2025-10-28T18:00:00.000-07:00</published>
+    <updated>2025-10-28T18:00:00.000-07:00</updated>
+    <title type='text'>Stable Channel Update for Desktop</title>
+    <content type='html'>&lt;p&gt;The Stable channel has been updated to 141.0.7390.130 for Windows, Mac and 141.0.7390.122 for Linux, which will roll out over the coming days/weeks.&lt;/p&gt;
+&lt;p&gt;This update includes 2 security fixes. Below, we highlight fixes that were contributed by external researchers.&lt;/p&gt;
+&lt;p&gt;[$11000][361234567] High CVE-2025-11111: Type Confusion in V8. Reported by External Researcher on 2025-10-01&lt;/p&gt;
+&lt;p&gt;[$5000][362345678] Medium CVE-2025-22222: Inappropriate implementation in Skia. Reported by External Researcher on 2025-10-02&lt;/p&gt;
+&lt;p&gt;Google is aware that an exploit for CVE-2025-11111 exists in the wild.&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <id>tag:blogger.com,1999:blog-8988938189639087705.post-3</id>
+    <published>2025-10-28T17:00:00.000-07:00</published>
+    <updated>2025-10-28T17:00:00.000-07:00</updated>
+    <title type='text'>Extended Stable Channel Update for Desktop</title>
+    <content type='html'>&lt;p&gt;The Extended Stable channel has been updated to 140.0.7339.207 for Windows, Mac and 140.0.7339.200 for Linux.&lt;/p&gt;
+&lt;p&gt;[$5000][360000001] High CVE-2025-44444: Out of bounds write in Skia.&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <id>tag:blogger.com,1999:blog-8988938189639087705.post-2</id>
+    <published>2025-10-29T09:00:00.000-07:00</published>
+    <updated>2025-10-29T09:00:00.000-07:00</updated>
+    <title type='text'>Stable Channel Update for Android</title>
+    <content type='html'>&lt;p&gt;The Stable channel has been updated to 141.0.7390.133 for Android.&lt;/p&gt;
+&lt;p&gt;High CVE-2025-33333: Heap buffer overflow in ANGLE.&lt;/p&gt;</content>
+  </entry>
+</feed>

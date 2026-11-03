@@ -25,7 +25,7 @@ It runs two loops:
 
 | Command | What it does |
 |---------|--------------|
-| `vanguard scan` | Find known CVEs in the packages on this machine and print plain-English fixes |
+| `vanguard scan` | Find known CVEs in the packages on this machine — including browsers installed outside the package manager — and print plain-English fixes |
 | `vanguard watch` | Poll on a cadence; alert on **new findings** *and* when a **patch becomes available** |
 | `vanguard inventory` | Inventory the NVIDIA/DGX/GB10 hardware: driver, CUDA, cuDNN, GPU firmware/VBIOS, NGC images, Grace/GB10, MIG, DPU |
 | `vanguard fix` | Print the exact `apt-get install --only-upgrade` command for every fixable finding (dry-run — never auto-applies) |
@@ -154,7 +154,7 @@ go install github.com/Pentatonic-Labs/vanguard/cmd/vanguard@main
 ## Layout
 
 - `cvmcore/` — reactive CVM: ingest → normalize → match → triage, plus `fetch`/`pipeline`
-- `inventory/` — SBOM generation, the DGX/GB10 collectors (drivers, firmware, NGC, platform), and runtime reachability
+- `inventory/` — SBOM generation, the DGX/GB10 collectors (drivers, firmware, NGC, platform), runtime reachability, and the browser collector (Chromium-family builds from distro paths and from test-tool caches such as Playwright/Puppeteer, which no package manager maintains)
 - `fixer/` — manifest-precise fixes with a dry-run verification gate
 - `findings/` — the finding schema (with semantic `expected` proof for agentic findings)
 - `posture/` — read-only SaaS posture checks (GitHub / Entra / Cloudflare / Linear)

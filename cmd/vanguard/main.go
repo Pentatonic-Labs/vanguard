@@ -56,6 +56,15 @@ var feedFailures atomic.Int64
 func scanConfig() pipeline.Config {
 	cfg := pipeline.Config{
 		ParseCacheDir: fetch.DefaultCacheDir(),
+		// Browser builds a test tool downloaded are not dpkg/rpm packages, so
+		// they are collected separately; without this a bundled Chromium is
+		// invisible to the scan. A build the collector refuses to run is
+		// reported: a silent skip would hide an attacker-planted binary.
+		CollectBrowsers: func() ([]inventory.Package, error) {
+			return inventory.CollectBrowsersWithNotes(func(msg string) {
+				fmt.Fprintf(os.Stderr, "vanguard: warning: %s\n", msg)
+			})
+		},
 		OnFeedError: func(feed string, err error) {
 			feedFailures.Add(1)
 			fmt.Fprintf(os.Stderr, "vanguard: warning: %s feed skipped: %v\n", feed, err)
@@ -138,7 +147,11 @@ func writeCVMFindings(proposals []remediate.Proposal) {
 			cvss = fmt.Sprintf("%.1f", p.CVSS)
 		}
 		fixText := "No fixed version known yet — monitor for a patch and apply mitigations."
-		if p.Fixed != "" {
+		if advice := inventory.FixAdvice(p.Purl); advice != "" {
+			// A browser build outside the package manager is not fixed by
+			// upgrading a package, so it needs its own instruction.
+			fixText = advice
+		} else if p.Fixed != "" {
 			fixText = fmt.Sprintf("Upgrade %s from %s to %s (or later).", p.Package, p.Installed, p.Fixed)
 		}
 		list = append(list, findings.Finding{
