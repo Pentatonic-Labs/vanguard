@@ -191,34 +191,74 @@ func TestTierRules(t *testing.T) {
 	}
 }
 
-// A box keeps its previous kernel line installed. Findings against it cannot be
-// patched away, only removed with the kernel, so they must not fill the list.
-func TestStaleKernelDetection(t *testing.T) {
+// Package names a kernel fix actually ships as, against running
+// 6.17.0-1031-nvidia. The release has to be found anywhere in the name, and a
+// name with no release at all is how fixes arrive — never stale.
+func TestKernelRelation(t *testing.T) {
 	const running = "6.17.0-1031-nvidia"
 	cases := []struct {
 		pkg  string
-		want bool
+		want kernelRelation
 	}{
-		{"linux-image-" + running, false},
-		{"linux-modules-" + running, false},
-		{"linux-headers-" + running, false},
-		// Unflavoured headers of the running ABI are the running kernel's.
-		{"linux-headers-6.17.0-1031", false},
-		{"linux-image-6.17.0-1029-nvidia", true},
-		{"linux-headers-6.17.0-1029-nvidia", true},
-		{"linux-modules-6.17.0-1029-nvidia", true},
-		{"linux-firmware", false},
-		{"openssl", false},
+		// Metapackages: no embedded release, and they are how kernel fixes arrive.
+		{"linux-image-nvidia-hwe-24.04", kernelUnknown},
+		{"linux-headers-generic", kernelUnknown},
+		{"linux-modules-nvidia-fs-nvidia-hwe-24.04", kernelUnknown},
+		// Family words before the release, on the running kernel.
+		{"linux-modules-nvidia-580-open-6.17.0-1031-nvidia", kernelCurrent},
+		{"linux-modules-nvidia-fs-6.17.0-1031-nvidia", kernelCurrent},
+		{"linux-image-6.17.0-1031-nvidia", kernelCurrent},
+		{"linux-headers-6.17.0-1031-nvidia", kernelCurrent},
+		// Unflavoured headers of the running ABI.
+		{"linux-headers-6.17.0-1031", kernelCurrent},
+		{"linux-tools-6.17.0-1031", kernelCurrent},
+		// Older kernel lines.
+		{"linux-image-6.17.0-1029-nvidia", kernelOlder},
+		{"linux-headers-6.11.0-1014-nvidia", kernelOlder},
+		{"linux-nvidia-6.11-headers-6.11.0-1014", kernelOlder},
+		// Newer and waiting for a reboot.
+		{"linux-image-7.0.0-1019-nvidia", kernelNewer},
+		{"linux-modules-nvidia-580-open-6.17.0-1032-nvidia", kernelNewer},
+		// Not kernel packages, whatever digits they carry.
+		{"linux-firmware", kernelUnknown},
+		{"linux-libc-dev", kernelUnknown},
+		{"openssl", kernelUnknown},
 	}
 	for _, c := range cases {
-		if got := isStaleKernel(c.pkg, running); got != c.want {
-			t.Errorf("isStaleKernel(%q, %q) = %v, want %v", c.pkg, running, got, c.want)
+		if got := classifyKernel(c.pkg, running); got != c.want {
+			t.Errorf("classifyKernel(%q, %q) = %v, want %v", c.pkg, running, got, c.want)
 		}
 	}
-	// With no running kernel known nothing may be called stale: wrongly hiding a
-	// finding is worse than listing a stale one.
-	if isStaleKernel("linux-image-6.17.0-1029-nvidia", "") {
-		t.Error("unknown running kernel: no package may be marked stale")
+	// An unflavoured running kernel (linux-headers-6.17.0-1031 style) works too.
+	if got := classifyKernel("linux-image-6.17.0-1031-nvidia", "6.17.0-1031"); got != kernelCurrent {
+		t.Errorf("unflavoured running kernel: got %v, want current", got)
+	}
+	// With no running kernel known nothing may be called stale or pending:
+	// wrongly hiding a finding is worse than listing a kernel package.
+	for _, pkg := range []string{"linux-image-6.17.0-1029-nvidia", "linux-image-7.0.0-1019-nvidia"} {
+		if got := classifyKernel(pkg, ""); got != kernelUnknown {
+			t.Errorf("classifyKernel(%q, no running kernel) = %v, want unknown", pkg, got)
+		}
+	}
+}
+
+// Numeric, not lexical: 6.17.0-999 is older than 6.17.0-1031.
+func TestCompareKernelBase(t *testing.T) {
+	cases := []struct {
+		a, b string
+		want int
+	}{
+		{"6.17.0-1031", "6.17.0-1031", 0},
+		{"6.17.0-999", "6.17.0-1031", -1},
+		{"6.11.0-1014", "6.17.0-1031", -1},
+		{"7.0.0-1019", "6.17.0-1031", 1},
+		{"6.17.1-1014", "6.17.0-1031", 1},
+		{"6.17.0-1032", "6.17.0-1031", 1},
+	}
+	for _, c := range cases {
+		if got := compareKernelBase(c.a, c.b); got != c.want {
+			t.Errorf("compareKernelBase(%q, %q) = %d, want %d", c.a, c.b, got, c.want)
+		}
 	}
 }
 
@@ -269,14 +309,71 @@ func TestStaleKernelRowWithRunningKernelIsNotStale(t *testing.T) {
 	}
 }
 
+// A newer kernel is installed, not stale: there is nothing to remove, and the
+// CVE it carries is real until the reboot, so it keeps its tier.
+func TestNewerKernelIsPendingRebootNotStale(t *testing.T) {
+	decisions := []cvmcore.Decision{{
+		Action: cvmcore.ActionPropose,
+		Score:  9.8,
+		Match: cvmcore.Match{
+			Packages:  []string{"pkg:deb/linux-image-7.0.0-1019-nvidia@7.0.0-1019.31"},
+			Reachable: true,
+			Vuln: cvmcore.Vuln{ID: "UBUNTU-CVE-2026-98434", Severity: "critical", CVSS: 9.8,
+				Affected: []cvmcore.VersionRange{{Ecosystem: "deb", Release: "24.04", Fixed: "7.0.0-1020.32"}}},
+		},
+	}}
+	got := BuildWithKernel(decisions, "24.04", "6.17.0-1031-nvidia")
+	if len(got) != 1 {
+		t.Fatalf("got %d proposals, want 1", len(got))
+	}
+	if got[0].StaleKernel {
+		t.Errorf("newer kernel marked stale (would be reported for removal): %+v", got[0])
+	}
+	if !got[0].PendingReboot {
+		t.Errorf("newer kernel not marked pending reboot: %+v", got[0])
+	}
+	if got[0].Tier != TierActNow {
+		t.Errorf("tier = %q, want %q: newer is not stale, and the CVE is real until the reboot",
+			got[0].Tier, TierActNow)
+	}
+	if !strings.Contains(got[0].Explain(), "reboot to apply") {
+		t.Errorf("explain does not mention the reboot:\n%s", got[0].Explain())
+	}
+}
+
+// A metapackage carries no release and is never stale: it is how the fixed
+// kernel arrives, so demoting it would hide the upgrade.
+func TestKernelMetapackageIsNotStale(t *testing.T) {
+	decisions := []cvmcore.Decision{{
+		Action: cvmcore.ActionPropose,
+		Score:  9.8,
+		Match: cvmcore.Match{
+			Packages:  []string{"pkg:deb/linux-image-nvidia-hwe-24.04@6.11.0-1014.14"},
+			Reachable: true,
+			Vuln: cvmcore.Vuln{ID: "UBUNTU-CVE-2026-98435", Severity: "critical", CVSS: 9.8,
+				Affected: []cvmcore.VersionRange{{Ecosystem: "deb", Release: "24.04", Fixed: "6.17.0-1031.31"}}},
+		},
+	}}
+	got := BuildWithKernel(decisions, "24.04", "6.17.0-1031-nvidia")
+	if len(got) != 1 {
+		t.Fatalf("got %d proposals, want 1", len(got))
+	}
+	if got[0].StaleKernel || got[0].PendingReboot {
+		t.Errorf("metapackage classified as a kernel package: %+v", got[0])
+	}
+	if got[0].Tier != TierActNow {
+		t.Errorf("tier = %q, want %q", got[0].Tier, TierActNow)
+	}
+}
+
 // The scan's --json output and the findings it persists are consumed by other
 // tools, so the triage fields need stable names.
 func TestProposalJSONIncludesTriageFields(t *testing.T) {
-	b, err := json.Marshal(Proposal{VulnID: "CVE-2099-1", Tier: TierActNow, StaleKernel: true})
+	b, err := json.Marshal(Proposal{VulnID: "CVE-2099-1", Tier: TierActNow, StaleKernel: true, PendingReboot: true})
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	for _, want := range []string{`"tier":"act-now"`, `"stale_kernel":true`} {
+	for _, want := range []string{`"tier":"act-now"`, `"stale_kernel":true`, `"pending_reboot":true`} {
 		if !strings.Contains(string(b), want) {
 			t.Errorf("proposal JSON missing %s: %s", want, b)
 		}

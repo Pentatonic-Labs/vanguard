@@ -226,7 +226,10 @@ func scanOutput(proposals []remediate.Proposal, showAll bool) string {
 		remediate.TierPatch, counts[remediate.TierPatch],
 		remediate.TierWatch, counts[remediate.TierWatch],
 		remediate.TierNoise, counts[remediate.TierNoise])
-	if line := staleKernelLine(proposals); line != "" {
+	if line := oldKernelLine(proposals); line != "" {
+		b.WriteString(line + "\n")
+	}
+	if line := rebootPendingLine(proposals); line != "" {
 		b.WriteString(line + "\n")
 	}
 	b.WriteString("\n")
@@ -253,10 +256,10 @@ func scanOutput(proposals []remediate.Proposal, showAll bool) string {
 	return b.String()
 }
 
-// staleKernelLine names, in one line, the kernel packages that belong to a
-// kernel other than the running one: they are noise as individual findings, but
-// worth saying once so the operator knows what removing them would clear.
-func staleKernelLine(proposals []remediate.Proposal) string {
+// oldKernelLine names, in one line, the kernel packages that belong to a kernel
+// older than the running one: noise as individual findings, but worth saying
+// once so the operator knows what removing them would clear.
+func oldKernelLine(proposals []remediate.Proposal) string {
 	var names []string
 	findings := 0
 	for _, p := range proposals {
@@ -277,6 +280,37 @@ func staleKernelLine(proposals []remediate.Proposal) string {
 		shown = shown[:max]
 		more = fmt.Sprintf(", and %d more", len(names)-max)
 	}
-	return fmt.Sprintf("stale kernel packages (not the running kernel): %s%s — remove them to clear %d findings",
-		strings.Join(shown, ", "), more, findings)
+	noun := "findings"
+	if findings == 1 {
+		noun = "finding"
+	}
+	return fmt.Sprintf("old kernel packages (older than the running kernel): %s%s — remove them to clear %d %s",
+		strings.Join(shown, ", "), more, findings, noun)
+}
+
+// rebootPendingLine names, in one line, the kernels that are installed but not
+// booted. They are not stale and must never be reported as removable: the fix
+// is a reboot.
+func rebootPendingLine(proposals []remediate.Proposal) string {
+	seen := map[string]bool{}
+	var releases []string
+	for _, p := range proposals {
+		if !p.PendingReboot {
+			continue
+		}
+		for _, name := range append([]string{p.Package}, p.AlsoAffected...) {
+			rel := remediate.KernelRelease(name)
+			if rel == "" || seen[rel] {
+				continue
+			}
+			seen[rel] = true
+			releases = append(releases, rel)
+		}
+	}
+	if len(releases) == 0 {
+		return ""
+	}
+	sort.Strings(releases)
+	return fmt.Sprintf("newer kernel installed but not booted (reboot pending): %s",
+		strings.Join(releases, ", "))
 }
