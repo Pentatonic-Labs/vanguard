@@ -160,6 +160,17 @@ func (w *watcher) cycle(scan scanFunc) {
 	// first cycle would report every finding as new, for ever.
 	w.prev = current
 
+	// A complete scan — baseline or not — is the only thing that can say what is
+	// still outstanding. An incomplete one never can.
+	if err := w.store.WriteFindings(notify.Findings{
+		Generated: time.Now(),
+		Hostname:  w.hostname,
+		Version:   version,
+		Proposals: proposals,
+	}); err != nil {
+		fmt.Fprintf(os.Stderr, "vanguard: findings: %v\n", err)
+	}
+
 	w.finish(w.heartbeat(started, true, lost, len(proposals), events), events)
 
 	elapsed := time.Since(started).Round(time.Millisecond)

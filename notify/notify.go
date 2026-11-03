@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sort"
 	"time"
 
 	"github.com/Pentatonic-Labs/vanguard/cvmcore/remediate"
@@ -27,7 +28,13 @@ const (
 const (
 	HeartbeatFile = "heartbeat.json"
 	EventsFile    = "events.jsonl"
+	FindingsFile  = "findings.json"
 )
+
+// DefaultMaxFindings caps the findings snapshot. Event lines record
+// transitions; the snapshot says what is still outstanding, and a digest does
+// not need it unbounded.
+const DefaultMaxFindings = 2000
 
 // DefaultRotateBytes is the size at which the event log is rotated. One
 // previous generation is kept as events.jsonl.1.
@@ -87,16 +94,33 @@ type Payload struct {
 	Events    []Event   `json:"events"`
 }
 
+// Findings is the current state of a host after a complete scan: every
+// proposal still outstanding, highest score first. The event log records
+// transitions, and no sequence of events on its own says a finding was
+// resolved — the snapshot does.
+//
+// Proposals carry no tier on this path; a consumer that knows about tiers
+// filters them itself once they are recorded here.
+type Findings struct {
+	Generated time.Time            `json:"generated"`
+	Hostname  string               `json:"hostname"`
+	Version   string               `json:"version"`
+	Truncated bool                 `json:"truncated,omitempty"`
+	Proposals []remediate.Proposal `json:"proposals"`
+}
+
 // Store owns a watch loop's on-disk state.
 type Store struct {
 	Dir string
 	// RotateAt is the size at which the event log is rotated.
 	RotateAt int64
+	// MaxFindings is the number of proposals the snapshot keeps.
+	MaxFindings int
 }
 
 // NewStore returns a store rooted at dir, rotating at the default size.
 func NewStore(dir string) *Store {
-	return &Store{Dir: dir, RotateAt: DefaultRotateBytes}
+	return &Store{Dir: dir, RotateAt: DefaultRotateBytes, MaxFindings: DefaultMaxFindings}
 }
 
 // WriteHeartbeat replaces the heartbeat file atomically: write a temporary file
@@ -107,30 +131,59 @@ func (s *Store) WriteHeartbeat(hb Heartbeat) error {
 	if err != nil {
 		return err
 	}
-	data = append(data, '\n')
-	if err := os.MkdirAll(s.Dir, 0o755); err != nil {
-		return err
+	return writeFileAtomic(s.Dir, HeartbeatFile, append(data, '\n'))
+}
+
+// WriteFindings replaces the findings snapshot atomically, highest score first,
+// capped at MaxFindings with truncated set when it had to cut.
+func (s *Store) WriteFindings(f Findings) error {
+	props := make([]remediate.Proposal, len(f.Proposals))
+	copy(props, f.Proposals)
+	sort.SliceStable(props, func(i, j int) bool { return props[i].Score > props[j].Score })
+
+	max := s.MaxFindings
+	if max <= 0 {
+		max = DefaultMaxFindings
 	}
-	tmp, err := os.CreateTemp(s.Dir, ".heartbeat-*.tmp")
+	f.Truncated = len(props) > max
+	if f.Truncated {
+		props = props[:max]
+	}
+	f.Proposals = props
+
+	data, err := json.MarshalIndent(f, "", "  ")
 	if err != nil {
 		return err
 	}
-	name := tmp.Name()
+	return writeFileAtomic(s.Dir, FindingsFile, append(data, '\n'))
+}
+
+// writeFileAtomic writes dir/name by writing a temporary file in the same
+// directory and renaming it, so a reader only ever sees a whole file.
+func writeFileAtomic(dir, name string, data []byte) error {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(dir, "."+name+".*.tmp")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
 	if _, err := tmp.Write(data); err != nil {
 		tmp.Close()
-		os.Remove(name)
+		os.Remove(tmpName)
 		return err
 	}
 	if err := tmp.Close(); err != nil {
-		os.Remove(name)
+		os.Remove(tmpName)
 		return err
 	}
 	// CreateTemp leaves 0600; an operator's status script runs as someone else.
-	if err := os.Chmod(name, 0o644); err != nil {
-		os.Remove(name)
+	if err := os.Chmod(tmpName, 0o644); err != nil {
+		os.Remove(tmpName)
 		return err
 	}
-	return os.Rename(name, filepath.Join(s.Dir, HeartbeatFile))
+	return os.Rename(tmpName, filepath.Join(dir, name))
 }
 
 // AppendEvents adds one JSON line per event, rotating the log first if this

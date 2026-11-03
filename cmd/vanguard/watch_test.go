@@ -297,3 +297,75 @@ func TestFatalScanErrorNotifies(t *testing.T) {
 		t.Fatal("hook was told the scan completed")
 	}
 }
+
+func readFindings(t *testing.T, w *watcher) (notify.Findings, bool) {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(w.store.Dir, notify.FindingsFile))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return notify.Findings{}, false
+		}
+		t.Fatalf("read findings: %v", err)
+	}
+	var f notify.Findings
+	if err := json.Unmarshal(data, &f); err != nil {
+		t.Fatalf("findings is not valid JSON: %v\n%s", err, data)
+	}
+	return f, true
+}
+
+// A complete scan records what is outstanding — including the baseline cycle,
+// which emits no events.
+func TestCompleteCycleWritesFindings(t *testing.T) {
+	w := newTestWatcher(t)
+	w.firstRun = true
+	w.cycle(func() ([]remediate.Proposal, int64, error) {
+		return []remediate.Proposal{
+			proposal("CVE-0000-0001", "openssl", ""),
+			proposal("CVE-0000-0002", "bash", "5.2"),
+		}, 0, nil
+	})
+
+	f, ok := readFindings(t, w)
+	if !ok {
+		t.Fatal("a complete scan must write a findings snapshot, baseline included")
+	}
+	if f.Hostname != "testhost" || f.Version == "" {
+		t.Fatalf("snapshot header = %+v", f)
+	}
+	if len(f.Proposals) != 2 {
+		t.Fatalf("kept %d proposals, want 2", len(f.Proposals))
+	}
+	if f.Truncated {
+		t.Fatal("two proposals cannot be truncated")
+	}
+	if f.Generated.IsZero() {
+		t.Fatal("snapshot has no generated time")
+	}
+}
+
+// An incomplete or failed cycle did not look, so it must not touch the snapshot:
+// stale findings are corrected by the next complete scan, not erased by a host
+// that lost its feeds.
+func TestIncompleteCyclesLeaveFindingsAlone(t *testing.T) {
+	w := newTestWatcher(t)
+	w.cycle(func() ([]remediate.Proposal, int64, error) {
+		return []remediate.Proposal{proposal("CVE-0000-0001", "openssl", "")}, 0, nil
+	})
+	path := filepath.Join(w.store.Dir, notify.FindingsFile)
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("findings not written: %v", err)
+	}
+
+	w.cycle(func() ([]remediate.Proposal, int64, error) { return nil, 2, nil })
+	w.cycle(func() ([]remediate.Proposal, int64, error) { return nil, 0, errors.New("feeds unreachable") })
+
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("findings disappeared: %v", err)
+	}
+	if string(after) != string(before) {
+		t.Fatalf("an incomplete cycle rewrote the snapshot:\nbefore: %s\nafter:  %s", before, after)
+	}
+}

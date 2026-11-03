@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -185,5 +186,107 @@ func TestAppendEventsNoopOnEmpty(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, EventsFile)); !os.IsNotExist(err) {
 		t.Fatal("a cycle with no events must not create the log")
+	}
+}
+
+// The event log only ever says what changed. The snapshot is what lets a
+// consumer tell which findings are still outstanding.
+func TestWriteFindingsValidJSONSortedByScore(t *testing.T) {
+	dir := t.TempDir()
+	s := NewStore(dir)
+	low := sampleProposal()
+	low.VulnID, low.Score = "CVE-0000-0002", 2.5
+	high := sampleProposal()
+	high.VulnID, high.Score = "CVE-0000-0003", 9.8
+	mid := sampleProposal()
+	mid.VulnID, mid.Score = "CVE-0000-0004", 6.0
+
+	generated := time.Now().UTC().Truncate(time.Second)
+	if err := s.WriteFindings(Findings{
+		Generated: generated,
+		Hostname:  "testhost",
+		Version:   "test",
+		Proposals: []remediate.Proposal{low, high, mid},
+	}); err != nil {
+		t.Fatalf("WriteFindings: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(dir, FindingsFile))
+	if err != nil {
+		t.Fatalf("findings not written: %v", err)
+	}
+	var got Findings
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("findings is not valid JSON: %v\n%s", err, data)
+	}
+	if got.Hostname != "testhost" || got.Version != "test" {
+		t.Fatalf("findings lost its header: %+v", got)
+	}
+	if !got.Generated.Equal(generated) {
+		t.Fatalf("generated = %v, want %v", got.Generated, generated)
+	}
+	if got.Truncated {
+		t.Fatal("a snapshot below the cap must not be marked truncated")
+	}
+	ids := make([]string, len(got.Proposals))
+	for i, p := range got.Proposals {
+		ids[i] = p.VulnID
+	}
+	if want := []string{"CVE-0000-0003", "CVE-0000-0004", "CVE-0000-0002"}; !reflect.DeepEqual(ids, want) {
+		t.Fatalf("proposals = %v, want score order %v", ids, want)
+	}
+	// The snapshot is a copy: sorting it must not reorder the caller's slice.
+	if low.VulnID != "CVE-0000-0002" || high.VulnID != "CVE-0000-0003" {
+		t.Fatal("WriteFindings reordered the caller's slice")
+	}
+}
+
+func TestWriteFindingsCapsAndMarksTruncated(t *testing.T) {
+	dir := t.TempDir()
+	s := NewStore(dir)
+	s.MaxFindings = 2
+	props := []remediate.Proposal{sampleProposal(), sampleProposal(), sampleProposal()}
+	for i := range props {
+		props[i].VulnID = "CVE-0000-000" + string(rune('1'+i))
+		props[i].Score = float64(i)
+	}
+
+	if err := s.WriteFindings(Findings{Hostname: "testhost", Proposals: props}); err != nil {
+		t.Fatalf("WriteFindings: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, FindingsFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got Findings
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("findings is not valid JSON: %v", err)
+	}
+	if !got.Truncated {
+		t.Fatal("a capped snapshot must be marked truncated")
+	}
+	if len(got.Proposals) != 2 {
+		t.Fatalf("kept %d proposals, want 2", len(got.Proposals))
+	}
+	// The cap must keep the worst findings, not the first ones.
+	if got.Proposals[0].Score != 2 || got.Proposals[1].Score != 1 {
+		t.Fatalf("kept scores %v, want the two highest", got.Proposals)
+	}
+}
+
+func TestWriteFindingsIsAtomic(t *testing.T) {
+	dir := t.TempDir()
+	s := NewStore(dir)
+	if err := s.WriteFindings(Findings{Hostname: "testhost", Proposals: []remediate.Proposal{sampleProposal()}}); err != nil {
+		t.Fatalf("WriteFindings: %v", err)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".tmp") {
+			t.Fatalf("temporary file left behind: %s", e.Name())
+		}
 	}
 }
