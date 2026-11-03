@@ -5,10 +5,28 @@ package remediate
 
 import (
 	"fmt"
+	"os/exec"
 	"sort"
 	"strings"
 
 	"github.com/Pentatonic-Labs/vanguard/cvmcore"
+)
+
+// Triage tiers. A baseline on a real host tracks thousands of vuln/package
+// pairs, and every one of them used to carry the same weight, so the three that
+// matter were buried in the ones that cannot be acted on — mostly packages
+// belonging to a kernel that is installed but never booted.
+const (
+	// TierActNow is a finding that is being exploited, or a critical/high
+	// vulnerability reachable from a running process that has a fix: today.
+	TierActNow = "act-now"
+	// TierPatch is a known-fix finding worth the next patch window.
+	TierPatch = "patch"
+	// TierWatch is a critical/high finding with no fix known yet: monitor it.
+	TierWatch = "watch"
+	// TierNoise is everything else, including the packages of a kernel that is
+	// not the running one.
+	TierNoise = "noise"
 )
 
 // Proposal is a single remediation proposal for a triaged match.
@@ -33,6 +51,13 @@ type Proposal struct {
 	// proposal per binary turns a 9.8 into thirty rows, buries everything else
 	// and makes the output unusable; the operator upgrades the kernel once.
 	AlsoAffected []string `json:"also_affected,omitempty"`
+	// Tier is how urgently this proposal needs a human: act-now, patch, watch
+	// or noise. Set by Build.
+	Tier string `json:"tier"`
+	// StaleKernel marks a finding that only concerns a kernel other than the
+	// running one. Removing that kernel package resolves it; patching the box
+	// does not, so these are noise.
+	StaleKernel bool `json:"stale_kernel"`
 }
 
 // HasFix reports whether a fixed version is known.
@@ -85,6 +110,13 @@ func (p Proposal) Explain() string {
 // matched package are skipped; matches with no known fixed version still
 // produce a proposal (HasFix is false).
 func Build(decisions []cvmcore.Decision, release string) []Proposal {
+	return BuildWithKernel(decisions, release, RunningKernel())
+}
+
+// BuildWithKernel is Build with the running kernel release (as `uname -r`
+// prints it) supplied explicitly, so stale-kernel detection can be tested
+// without owning the host's kernel.
+func BuildWithKernel(decisions []cvmcore.Decision, release, runningKernel string) []Proposal {
 	var out []Proposal
 	// One proposal per (vulnerability, fix). Binaries from the same source
 	// package carry the same fix, so they collapse into one row with the rest
@@ -97,6 +129,7 @@ func Build(decisions []cvmcore.Decision, release string) []Proposal {
 				continue
 			}
 			fixed := fixedFor(d.Match.Vuln, purl, release)
+			stale := isStaleKernel(name, runningKernel)
 			action := string(d.Action)
 			if fixed == "" {
 				// No fix is known yet: there is nothing to propose, so alert the
@@ -111,29 +144,92 @@ func Build(decisions []cvmcore.Decision, release string) []Proposal {
 				if d.Score > out[i].Score {
 					out[i].Score = d.Score
 				}
+				// A row is stale only if every package it covers is stale: if the
+				// running kernel is affected too, this is still an action.
+				out[i].StaleKernel = out[i].StaleKernel && stale
 				continue
 			}
 			index[key] = len(out)
 			out = append(out, Proposal{
-				VulnID:    d.Match.Vuln.ID,
-				Severity:  d.Match.Vuln.Severity,
-				CVSS:      d.Match.Vuln.CVSS,
-				InKEV:     d.Match.Vuln.InKEV,
-				Reachable: d.Match.Reachable,
-				Purl:      purl,
-				Package:   name,
-				Installed: installed,
-				Fixed:     fixed,
-				Action:    action,
-				Score:     d.Score,
-				Summary:   d.Match.Vuln.Summary,
+				VulnID:      d.Match.Vuln.ID,
+				Severity:    d.Match.Vuln.Severity,
+				CVSS:        d.Match.Vuln.CVSS,
+				InKEV:       d.Match.Vuln.InKEV,
+				Reachable:   d.Match.Reachable,
+				Purl:        purl,
+				Package:     name,
+				Installed:   installed,
+				Fixed:       fixed,
+				Action:      action,
+				Score:       d.Score,
+				Summary:     d.Match.Vuln.Summary,
+				StaleKernel: stale,
 			})
 		}
 	}
 	for i := range out {
 		sort.Strings(out[i].AlsoAffected)
+		out[i].Tier = classify(out[i])
 	}
 	return out
+}
+
+// classify assigns a proposal its triage tier.
+func classify(p Proposal) string {
+	if p.StaleKernel {
+		return TierNoise
+	}
+	severe := p.Severity == "critical" || p.Severity == "high"
+	switch {
+	case p.InKEV, severe && p.Reachable && p.HasFix():
+		return TierActNow
+	case p.HasFix() && (severe || p.Severity == "medium" && p.Reachable):
+		return TierPatch
+	case !p.HasFix() && severe:
+		return TierWatch
+	}
+	return TierNoise
+}
+
+// kernelPackagePrefixes are the package families that carry a kernel release in
+// their name.
+var kernelPackagePrefixes = []string{"linux-image-", "linux-headers-", "linux-modules-"}
+
+// RunningKernel returns the running kernel release as `uname -r` reports it, or
+// "" when it cannot be determined.
+func RunningKernel() string {
+	out, err := exec.Command("uname", "-r").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// isStaleKernel reports whether name is a kernel package belonging to a kernel
+// that is not the running one. A box keeps its previous kernel line installed,
+// headers and all, so one distro CVE against that kernel matches dozens of
+// packages that cannot be patched away — only removed. With an unknown running
+// kernel nothing is called stale: guessing would hide real findings.
+func isStaleKernel(name, runningKernel string) bool {
+	if runningKernel == "" {
+		return false
+	}
+	for _, prefix := range kernelPackagePrefixes {
+		if !strings.HasPrefix(name, prefix) {
+			continue
+		}
+		return !sameKernelLine(strings.TrimPrefix(name, prefix), runningKernel)
+	}
+	return false
+}
+
+// sameKernelLine reports whether pkgVersion names the running kernel. Ubuntu
+// ships unflavoured headers (linux-headers-6.17.0-1031) beside the flavoured
+// image and modules (linux-image-6.17.0-1031-nvidia) of the same ABI, so a
+// package version that is a dash-terminated prefix of the running release is
+// the running kernel line, not a stale one.
+func sameKernelLine(pkgVersion, runningKernel string) bool {
+	return pkgVersion == runningKernel || strings.HasPrefix(runningKernel, pkgVersion+"-")
 }
 
 // contains reports whether name is already in list.

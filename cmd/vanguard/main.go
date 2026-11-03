@@ -3,8 +3,12 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"flag"
 	"fmt"
 	"os"
+	"sort"
+	"strings"
 	"sync/atomic"
 
 	"github.com/Pentatonic-Labs/vanguard/cvmcore"
@@ -31,6 +35,9 @@ func main() {
 		case "watch":
 			runWatch(os.Args[2:])
 			return
+		case "scan":
+			runScan(os.Args[2:])
+			return
 		case "inventory":
 			runInventory()
 			return
@@ -42,7 +49,7 @@ func main() {
 			return
 		}
 	}
-	runScan()
+	runScan(os.Args[1:])
 }
 
 // feedFailures counts feeds that could not be fetched during this process's
@@ -168,9 +175,15 @@ func writeCVMFindings(proposals []remediate.Proposal) {
 	}
 }
 
-// runScan runs the reactive CVM loop once and prints proposals, highest score
-// first.
-func runScan() {
+// runScan runs the reactive CVM loop once and prints proposals by triage tier.
+// By default only the tiers a human can act on are listed; --all lists every
+// tier, and --json prints the proposals with their tier and stale_kernel fields.
+func runScan(args []string) {
+	fs := flag.NewFlagSet("scan", flag.ExitOnError)
+	showAll := fs.Bool("all", false, "list every proposal, including watch and noise")
+	asJSON := fs.Bool("json", false, "print proposals as JSON")
+	_ = fs.Parse(args)
+
 	decisions, err := pipeline.Run(context.Background(), scanConfig())
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "vanguard:", err)
@@ -179,20 +192,91 @@ func runScan() {
 	proposals := remediate.Build(decisions, inventory.DetectOSVersion())
 	writeCVMFindings(proposals)
 
+	if *asJSON {
+		enc, err := json.MarshalIndent(proposals, "", "  ")
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "vanguard:", err)
+			os.Exit(1)
+		}
+		fmt.Println(string(enc))
+		return
+	}
+
 	bySource := map[string]int{}
 	for _, d := range decisions {
 		bySource[d.Match.Vuln.Source]++
 	}
 	fmt.Printf("vulns: %d (by source: %v)\n", len(decisions), bySource)
-	fmt.Printf("proposals: %d\n\n", len(proposals))
+	fmt.Print(scanOutput(proposals, *showAll))
+}
 
+// scanOutput renders the scan's tier summary and proposal list. A baseline on a
+// real host tracks thousands of vuln/package pairs, most of them about a kernel
+// that is installed but never booted; listing them all buries the handful that
+// need acting on, so only act-now and patch are listed unless showAll is set.
+func scanOutput(proposals []remediate.Proposal, showAll bool) string {
+	var b strings.Builder
+	counts := map[string]int{}
+	for _, p := range proposals {
+		counts[p.Tier]++
+	}
+	fmt.Fprintf(&b, "proposals: %d\n", len(proposals))
+	fmt.Fprintf(&b, "tiers: %s %d, %s %d, %s %d, %s %d\n",
+		remediate.TierActNow, counts[remediate.TierActNow],
+		remediate.TierPatch, counts[remediate.TierPatch],
+		remediate.TierWatch, counts[remediate.TierWatch],
+		remediate.TierNoise, counts[remediate.TierNoise])
+	if line := staleKernelLine(proposals); line != "" {
+		b.WriteString(line + "\n")
+	}
+	b.WriteString("\n")
+
+	listed := make([]remediate.Proposal, 0, len(proposals))
+	for _, p := range proposals {
+		if showAll || p.Tier == remediate.TierActNow || p.Tier == remediate.TierPatch {
+			listed = append(listed, p)
+		}
+	}
+	if len(listed) == 0 {
+		b.WriteString("nothing to act on now\n")
+		return b.String()
+	}
 	const show = 20
-	for i, p := range proposals {
+	for i, p := range listed {
 		if i >= show {
-			fmt.Printf("… and %d more\n", len(proposals)-show)
+			fmt.Fprintf(&b, "… and %d more\n", len(listed)-show)
 			break
 		}
-		fmt.Println(p.Explain())
-		fmt.Println()
+		fmt.Fprintln(&b, p.Explain())
+		b.WriteString("\n")
 	}
+	return b.String()
+}
+
+// staleKernelLine names, in one line, the kernel packages that belong to a
+// kernel other than the running one: they are noise as individual findings, but
+// worth saying once so the operator knows what removing them would clear.
+func staleKernelLine(proposals []remediate.Proposal) string {
+	var names []string
+	findings := 0
+	for _, p := range proposals {
+		if !p.StaleKernel {
+			continue
+		}
+		findings++
+		names = append(names, p.Package)
+		names = append(names, p.AlsoAffected...)
+	}
+	if len(names) == 0 {
+		return ""
+	}
+	sort.Strings(names)
+	shown, more := names, ""
+	const max = 6
+	if len(shown) > max {
+		shown = shown[:max]
+		more = fmt.Sprintf(", and %d more", len(names)-max)
+	}
+	return fmt.Sprintf("stale kernel packages (not the running kernel): %s%s — remove them to clear %d findings",
+		strings.Join(shown, ", "), more, findings)
 }
