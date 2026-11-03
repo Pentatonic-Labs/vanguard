@@ -14,79 +14,202 @@ import (
 	"github.com/Pentatonic-Labs/vanguard/cvmcore/pipeline"
 	"github.com/Pentatonic-Labs/vanguard/cvmcore/remediate"
 	"github.com/Pentatonic-Labs/vanguard/inventory"
+	"github.com/Pentatonic-Labs/vanguard/notify"
 )
 
 // runWatch runs the reactive loop on a cadence and reports changes: new
 // findings, and findings whose fix status flipped (a patch became available,
 // or a fix was withdrawn). The first run establishes a baseline.
+//
+// Every cycle also records a heartbeat and any events under the cache
+// directory, and hands the same payload to an operator-supplied transport.
 func runWatch(args []string) {
 	fs := flag.NewFlagSet("watch", flag.ExitOnError)
 	interval := fs.Duration("interval", time.Hour, "poll interval (e.g. 30m, 1h)")
+	notifyCmd := fs.String("notify-cmd", "", "command to run after a cycle with findings; the payload arrives as JSON on stdin")
+	notifyWebhook := fs.String("notify-webhook", "", "URL to POST the same JSON to after a cycle with findings")
 	fs.Parse(args)
 
 	statePath := filepath.Join(fetch.DefaultCacheDir(), "watch.json")
-	prev := loadFixed(statePath)
-	firstRun := !fileExists(statePath)
+	hostname, _ := os.Hostname()
+	w := &watcher{
+		store:         notify.NewStore(fetch.DefaultCacheDir()),
+		statePath:     statePath,
+		interval:      *interval,
+		notifyCmd:     *notifyCmd,
+		notifyWebhook: *notifyWebhook,
+		hostname:      hostname,
+		prev:          loadFixed(statePath),
+		firstRun:      !fileExists(statePath),
+	}
 
 	for {
-		start := time.Now()
-		failures := feedFailures.Load()
-		decisions, err := pipeline.Run(context.Background(), scanConfig())
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "vanguard: %v\n", err)
-			time.Sleep(*interval)
-			continue
-		}
-		if lost := feedFailures.Load() - failures; !shouldRecordBaseline(lost) {
-			// Never baseline a partial scan. A host that cannot resolve
-			// osv-vulnerabilities (seen in the field: no DNS) finds nothing, and
-			// recording "0 findings" makes every later cycle agree with it.
-			fmt.Printf("[%s] SCAN INCOMPLETE: %d feed(s) unavailable — baseline NOT updated, findings unknown\n",
-				time.Now().Format(time.RFC3339), lost)
-			fmt.Printf("[%s] next attempt in %s\n", time.Now().Format(time.RFC3339), interval.String())
-			time.Sleep(*interval)
-			continue
-		}
+		w.cycle(w.scan)
+		time.Sleep(w.interval)
+	}
+}
 
-		proposals := remediate.Build(decisions, inventory.DetectOSVersion())
-		current := map[string]string{}
-		byKey := map[string]remediate.Proposal{}
-		for _, p := range proposals {
-			key := p.VulnID + "|" + p.Purl
-			current[key] = p.Fixed
-			byKey[key] = p
+// watcher is one watch loop's state. Keeping it out of runWatch lets a test run
+// a single cycle against a stub scan instead of waiting out an interval.
+type watcher struct {
+	store         *notify.Store
+	statePath     string
+	interval      time.Duration
+	notifyCmd     string
+	notifyWebhook string
+	hostname      string
+	prev          map[string]string
+	firstRun      bool
+}
+
+// scanFunc performs one poll: the proposals it found, how many feeds were lost
+// while looking, and any fatal error.
+type scanFunc func() ([]remediate.Proposal, int64, error)
+
+// scan is the poll the loop performs for real.
+func (w *watcher) scan() ([]remediate.Proposal, int64, error) {
+	before := feedFailures.Load()
+	decisions, err := pipeline.Run(context.Background(), scanConfig())
+	lost := feedFailures.Load() - before
+	if err != nil {
+		return nil, lost, err
+	}
+	return remediate.Build(decisions, inventory.DetectOSVersion()), lost, nil
+}
+
+// cycle runs one poll: print what changed, then record the heartbeat, the event
+// log and any transport call. It reports failures on stderr rather than
+// returning them — a loop that stops looking because one cycle could not write
+// its heartbeat is worse than a gap in the record.
+func (w *watcher) cycle(scan scanFunc) {
+	started := time.Now()
+	proposals, lost, err := scan()
+	stamp := time.Now().Format(time.RFC3339)
+
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "vanguard: %v\n", err)
+		w.finish(notify.Heartbeat{
+			Version:      version,
+			Hostname:     w.hostname,
+			Started:      started,
+			Finished:     time.Now(),
+			DurationS:    time.Since(started).Seconds(),
+			FeedFailures: lost,
+			IntervalS:    w.interval.Seconds(),
+		}, nil)
+		return
+	}
+
+	if !shouldRecordBaseline(lost) {
+		// Never baseline a partial scan. A host that cannot resolve
+		// osv-vulnerabilities (seen in the field: no DNS) finds nothing, and
+		// recording "0 findings" makes every later cycle agree with it.
+		fmt.Printf("[%s] SCAN INCOMPLETE: %d feed(s) unavailable — baseline NOT updated, findings unknown\n", stamp, lost)
+		fmt.Printf("[%s] next attempt in %s\n", stamp, w.interval.String())
+		events := []notify.Event{{
+			TS:       started,
+			Type:     notify.TypeScanIncomplete,
+			Hostname: w.hostname,
+			Explain:  fmt.Sprintf("%d feed(s) unavailable — findings unknown, baseline not updated", lost),
+		}}
+		w.finish(w.heartbeat(started, false, lost, len(proposals), events), events)
+		return
+	}
+
+	current := map[string]string{}
+	byKey := map[string]remediate.Proposal{}
+	for _, p := range proposals {
+		key := p.VulnID + "|" + p.Purl
+		current[key] = p.Fixed
+		byKey[key] = p
+	}
+
+	newKeys, nowFixed, withdrawn := diffFixed(w.prev, current)
+
+	var events []notify.Event
+	switch {
+	case w.firstRun:
+		fmt.Printf("[%s] baseline: %d proposal(s) recorded; watching for new issues and new patches\n", stamp, len(proposals))
+		w.firstRun = false
+	default:
+		for _, k := range newKeys {
+			p := byKey[k]
+			fmt.Printf("[%s] NEW %s in %s\n%s\n\n", stamp, p.VulnID, p.Package, p.Explain())
+			events = append(events, newEvent(started, notify.TypeNew, w.hostname, p))
 		}
-
-		newKeys, nowFixed, withdrawn := diffFixed(prev, current)
-		stamp := time.Now().Format(time.RFC3339)
-
-		switch {
-		case firstRun:
-			fmt.Printf("[%s] baseline: %d proposal(s) recorded; watching for new issues and new patches\n", stamp, len(proposals))
-			firstRun = false
-		default:
-			for _, k := range newKeys {
-				p := byKey[k]
-				fmt.Printf("[%s] NEW %s in %s\n%s\n\n", stamp, p.VulnID, p.Package, p.Explain())
-			}
-			for _, k := range nowFixed {
-				p := byKey[k]
-				fmt.Printf("[%s] PATCH AVAILABLE %s in %s → upgrade to %s\n    apt-get install --only-upgrade %s=%s\n\n",
-					stamp, p.VulnID, p.Package, p.Fixed, p.Package, p.Fixed)
-			}
-			for _, k := range withdrawn {
-				p := byKey[k]
-				fmt.Printf("[%s] FIX WITHDRAWN %s in %s (no longer patched)\n\n", stamp, p.VulnID, p.Package)
-			}
-			if len(newKeys)+len(nowFixed)+len(withdrawn) == 0 {
-				fmt.Printf("[%s] no changes\n", stamp)
-			}
+		for _, k := range nowFixed {
+			p := byKey[k]
+			fmt.Printf("[%s] PATCH AVAILABLE %s in %s → upgrade to %s\n    apt-get install --only-upgrade %s=%s\n\n",
+				stamp, p.VulnID, p.Package, p.Fixed, p.Package, p.Fixed)
+			events = append(events, newEvent(started, notify.TypePatchAvailable, w.hostname, p))
 		}
-		_ = saveFixed(statePath, current)
+		for _, k := range withdrawn {
+			p := byKey[k]
+			fmt.Printf("[%s] FIX WITHDRAWN %s in %s (no longer patched)\n\n", stamp, p.VulnID, p.Package)
+			events = append(events, newEvent(started, notify.TypeFixWithdrawn, w.hostname, p))
+		}
+		if len(newKeys)+len(nowFixed)+len(withdrawn) == 0 {
+			fmt.Printf("[%s] no changes\n", stamp)
+		}
+	}
+	_ = saveFixed(w.statePath, current)
+	// Carry the baseline forward. Diffing against the map loaded before the
+	// first cycle would report every finding as new, for ever.
+	w.prev = current
 
-		elapsed := time.Since(start).Round(time.Millisecond)
-		fmt.Printf("[%s] next check in %s (last run %s)\n\n", time.Now().Format(time.RFC3339), interval.String(), elapsed)
-		time.Sleep(*interval)
+	w.finish(w.heartbeat(started, true, lost, len(proposals), events), events)
+
+	elapsed := time.Since(started).Round(time.Millisecond)
+	fmt.Printf("[%s] next check in %s (last run %s)\n\n", time.Now().Format(time.RFC3339), w.interval.String(), elapsed)
+}
+
+// heartbeat summarises one finished cycle.
+func (w *watcher) heartbeat(started time.Time, complete bool, lost int64, proposals int, events []notify.Event) notify.Heartbeat {
+	hb := notify.Heartbeat{
+		Version:        version,
+		Hostname:       w.hostname,
+		Started:        started,
+		Finished:       time.Now(),
+		DurationS:      time.Since(started).Seconds(),
+		ScanComplete:   complete,
+		FeedFailures:   lost,
+		ProposalsTotal: proposals,
+		IntervalS:      w.interval.Seconds(),
+	}
+	for _, e := range events {
+		hb.Events.Add(e.Type)
+	}
+	return hb
+}
+
+// newEvent wraps a proposal as an event log line.
+func newEvent(ts time.Time, typ, hostname string, p remediate.Proposal) notify.Event {
+	return notify.Event{TS: ts, Type: typ, Hostname: hostname, Proposal: &p, Explain: p.Explain()}
+}
+
+// finish records the cycle: heartbeat first, so liveness never depends on the
+// event log, then the events, then the transports. A cycle with no events wakes
+// no transport.
+func (w *watcher) finish(hb notify.Heartbeat, events []notify.Event) {
+	if err := w.store.WriteHeartbeat(hb); err != nil {
+		fmt.Fprintf(os.Stderr, "vanguard: heartbeat: %v\n", err)
+	}
+	if err := w.store.AppendEvents(events); err != nil {
+		fmt.Fprintf(os.Stderr, "vanguard: events: %v\n", err)
+	}
+	if len(events) == 0 {
+		return
+	}
+	payload := notify.Payload{Heartbeat: hb, Events: events}
+	if w.notifyCmd != "" {
+		if err := notify.RunCommand(w.notifyCmd, payload); err != nil {
+			fmt.Fprintf(os.Stderr, "vanguard: notify command failed: %v\n", err)
+		}
+	}
+	if w.notifyWebhook != "" {
+		if err := notify.PostWebhook(w.notifyWebhook, payload); err != nil {
+			fmt.Fprintf(os.Stderr, "vanguard: notify webhook failed: %v\n", err)
+		}
 	}
 }
 
