@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -241,5 +242,58 @@ func TestFailingNotifyCommandDoesNotStopTheLoop(t *testing.T) {
 	}
 	if hb.Events.New != 1 {
 		t.Fatalf("events.new = %d, want 1", hb.Events.New)
+	}
+}
+
+// A cycle that could not scan at all must wake a transport too. Otherwise a box
+// that errors on every interval is only visible as a heartbeat that stops
+// changing — which looks the same as a quiet box.
+func TestFatalScanErrorNotifies(t *testing.T) {
+	dir := t.TempDir()
+	received := filepath.Join(dir, "payload.json")
+	stub := filepath.Join(dir, "hook.sh")
+	if err := os.WriteFile(stub, []byte("#!/bin/sh\ncat > "+received+"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	w := newTestWatcher(t)
+	w.notifyCmd = stub
+
+	scanErr := errors.New(strings.Repeat("feed unavailable: connection refused ", 40))
+	w.cycle(func() ([]remediate.Proposal, int64, error) {
+		return nil, 1, scanErr
+	})
+
+	events := readEvents(t, w)
+	if len(events) != 1 || events[0].Type != notify.TypeScanIncomplete {
+		t.Fatalf("events = %+v, want one scan_incomplete event", events)
+	}
+	if !strings.Contains(events[0].Explain, "feed unavailable: connection refused") {
+		t.Fatalf("event does not carry the error text: %q", events[0].Explain)
+	}
+	if n := len([]rune(events[0].Explain)); n > 300 {
+		t.Fatalf("explain is %d chars, want ~300 or less", n)
+	}
+
+	hb := readHeartbeat(t, w)
+	if hb.ScanComplete {
+		t.Fatal("scan_complete = true for a cycle that errored")
+	}
+	if hb.Events.ScanIncomplete != 1 {
+		t.Fatalf("heartbeat counts = %+v, want one incomplete", hb.Events)
+	}
+
+	data, err := os.ReadFile(received)
+	if err != nil {
+		t.Fatalf("the notify command was not called: %v", err)
+	}
+	var payload notify.Payload
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatalf("payload is not valid JSON: %v\n%s", err, data)
+	}
+	if len(payload.Events) != 1 || payload.Events[0].Type != notify.TypeScanIncomplete {
+		t.Fatalf("hook received %+v, want one scan_incomplete event", payload.Events)
+	}
+	if payload.Heartbeat.ScanComplete {
+		t.Fatal("hook was told the scan completed")
 	}
 }

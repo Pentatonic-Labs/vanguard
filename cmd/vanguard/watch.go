@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/Pentatonic-Labs/vanguard/cvmcore/fetch"
@@ -88,15 +89,17 @@ func (w *watcher) cycle(scan scanFunc) {
 
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "vanguard: %v\n", err)
-		w.finish(notify.Heartbeat{
-			Version:      version,
-			Hostname:     w.hostname,
-			Started:      started,
-			Finished:     time.Now(),
-			DurationS:    time.Since(started).Seconds(),
-			FeedFailures: lost,
-			IntervalS:    w.interval.Seconds(),
-		}, nil)
+		// A cycle that could not look at all is not a quiet cycle, and a
+		// transport hears about it for the same reason it hears about lost
+		// feeds: otherwise a host that fails every interval is only visible as
+		// a heartbeat that stops changing.
+		events := []notify.Event{{
+			TS:       started,
+			Type:     notify.TypeScanIncomplete,
+			Hostname: w.hostname,
+			Explain:  truncate(err.Error(), explainLimit),
+		}}
+		w.finish(w.heartbeat(started, false, lost, len(proposals), events), events)
 		return
 	}
 
@@ -211,6 +214,21 @@ func (w *watcher) finish(hb notify.Heartbeat, events []notify.Event) {
 			fmt.Fprintf(os.Stderr, "vanguard: notify webhook failed: %v\n", err)
 		}
 	}
+}
+
+// explainLimit caps the free-form text carried by an event: a feed error can
+// embed a whole response body, and the event log is one line per event.
+const explainLimit = 300
+
+// truncate shortens s to at most n runes, collapsing whitespace so an error
+// carrying newlines stays one line, and marking that it was cut.
+func truncate(s string, n int) string {
+	s = strings.Join(strings.Fields(s), " ")
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n-1]) + "…"
 }
 
 // shouldRecordBaseline reports whether a scan result may be written as the new
